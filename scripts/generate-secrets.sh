@@ -16,7 +16,7 @@ write_secret() {
   chmod 600 "$target"
 }
 
-db_password="$(openssl rand -base64 36 | tr -d '\n')"
+db_password="$(openssl rand -hex 36)"
 write_secret postgres_password "$db_password"
 write_secret database_url "postgresql+asyncpg://traffic_inspector:${db_password}@postgres:5432/traffic_inspector"
 write_secret application_key "$(openssl rand -base64 32 | tr -d '\n')"
@@ -28,4 +28,3 @@ write_secret admin_password "$admin_password"
 
 echo "Secrets created with mode 0600. Store this bootstrap password now:"
 printf '%s\n' "$admin_password"
-

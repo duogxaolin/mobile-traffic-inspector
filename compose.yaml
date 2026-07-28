@@ -19,11 +19,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
   api:
     build:
       context: ./backend
@@ -95,6 +90,7 @@ services:
       - mitmproxy_state:/home/mitmproxy/.mitmproxy
       - capture_spool:/var/lib/traffic-inspector/spool
       - capture_state:/var/lib/traffic-inspector/state
+      - body_data:/var/lib/traffic-inspector/bodies
     networks:
       - internal
       - edge
