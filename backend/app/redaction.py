@@ -52,6 +52,11 @@ def redact_body(content: bytes, content_type: str | None) -> tuple[bytes, str]:
             return urlencode(fields).encode(), "form"
         except UnicodeDecodeError:
             pass
+    if media_type and not (
+        media_type.startswith("text/")
+        or media_type in {"application/xml", "application/javascript", "application/graphql"}
+    ):
+        return b"[binary body redacted; re-authenticate to download raw bytes]", "binary-redacted"
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -61,4 +66,3 @@ def redact_body(content: bytes, content_type: str | None) -> tuple[bytes, str]:
 
 def redact_query(query: list[list[str]] | None) -> list[list[str]]:
     return [[name, REDACTED if sensitive(name) else value] for name, value in (query or [])]
-

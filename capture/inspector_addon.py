@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import ipaddress
 import json
 import os
 import re
-import socket
 import struct
 import time
 import uuid
-from collections import defaultdict
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,7 +22,9 @@ from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from mitmproxy import ctx, exceptions, http
+from mitmproxy import exceptions, http
+
+from guard import destination_allowed
 
 MAGIC = b"MTIB1\x00"
 CHUNK_SIZE = 1024 * 1024
@@ -242,30 +241,9 @@ class InspectorAddon:
         writer.close()
         return writer.relative, writer.size
 
-    @staticmethod
-    def _is_allowed_override(host: str, ip: str) -> bool:
-        return host in set() or ip in set()
-
     def guard_destination(self, host: str | None, port: int | None = None) -> None:
-        if not host:
+        if not destination_allowed(host, port, self.overrides):
             raise exceptions.KillFlow
-        clean = host.strip("[]").lower().rstrip(".")
-        if clean in self.overrides:
-            return
-        if clean in METADATA_HOSTS:
-            raise exceptions.KillFlow
-        try:
-            literal = ipaddress.ip_address(clean)
-            addresses = [literal]
-        except ValueError:
-            try:
-                addresses = [ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(clean, port or 443, type=socket.SOCK_STREAM)]
-            except socket.gaierror as exc:
-                raise exceptions.KillFlow from exc
-        for address in addresses:
-            if not address.is_global or address.is_loopback or address.is_link_local or address.is_multicast:
-                if str(address) not in self.overrides and clean not in self.overrides:
-                    raise exceptions.KillFlow
 
     def server_connect(self, data) -> None:
         address = getattr(data.server, "address", None)
@@ -333,9 +311,10 @@ class InspectorAddon:
         self.enqueue(event)
 
     def response(self, flow: http.HTTPFlow) -> None:
-        # The response hook is deliberately empty: responseheaders installs a
-        # streaming tee and response() only runs after all response bytes passed.
-        return None
+        # responseheaders installs the streaming tee. This hook runs after all
+        # response bytes have passed through it, so it is the point at which the
+        # API can safely receive the encrypted body paths and final metadata.
+        self._complete(flow)
 
     def error(self, flow: http.HTTPFlow) -> None:
         self._complete(flow, getattr(flow.error, "msg", "proxy error") if flow.error else "proxy error")
@@ -394,6 +373,10 @@ class InspectorAddon:
         self._complete(flow)
 
     def udp_start(self, flow) -> None:
+        try:
+            self.guard_destination(flow.server_conn.address[0], flow.server_conn.address[1])
+        except (exceptions.KillFlow, AttributeError):
+            raise exceptions.KillFlow
         self.flows[self._id(flow)] = {"started": datetime.now(UTC), "session_key": self._session_key(flow)}
         if self.recording:
             self.enqueue({
@@ -410,4 +393,3 @@ class InspectorAddon:
 
 
 addons = [InspectorAddon()]
-

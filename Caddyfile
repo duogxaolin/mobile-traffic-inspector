@@ -1,30 +1,30 @@
 {$SITE_ADDRESS} {
-    tls {$ACME_EMAIL}
-    encode zstd gzip
+	tls {$ACME_EMAIL}
+	encode zstd gzip
 
-    @api path /api/* /auth/* /healthz /ws/*
-    reverse_proxy @api api:8000
+	@api path /api/* /auth/* /healthz /ws/*
+	reverse_proxy @api api:8000
 
-    @ca path /setup/mitmproxy-ca-cert.pem /setup/mitmproxy-ca-cert.cer
-    handle @ca {
-        root * /srv/mitmproxy
-        file_server
-        header Content-Disposition "attachment"
-        header Cache-Control "no-store"
-    }
+	@ca path /setup/mitmproxy-ca-cert.pem /setup/mitmproxy-ca-cert.cer
+	handle @ca {
+		uri strip_prefix /setup
+		root * /srv/public-ca
+		file_server
+		header Content-Disposition "attachment"
+		header Cache-Control "no-store"
+	}
 
-    handle {
-        root * /srv
-        try_files {path} /index.html
-        file_server
-    }
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
 
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        -Server
-    }
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
 }
-

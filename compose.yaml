@@ -1,6 +1,34 @@
 name: mobile-traffic-inspector
 
 services:
+  volume-init:
+    image: alpine:3.20
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        chown -R 10001:999 /bodies /capture-spool /capture-state /mitmproxy-state
+        chmod 0770 /bodies /capture-spool /capture-state /mitmproxy-state
+        chown -R 10001:10001 /public-ca /caddy-data /caddy-config
+        chmod 0750 /public-ca /caddy-data /caddy-config
+    volumes:
+      - body_data:/bodies
+      - capture_spool:/capture-spool
+      - capture_state:/capture-state
+      - mitmproxy_state:/mitmproxy-state
+      - public_ca:/public-ca
+      - caddy_data:/caddy-data
+      - caddy_config:/caddy-config
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+
   postgres:
     image: postgres:16.4-alpine
     restart: unless-stopped
@@ -46,6 +74,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 10s
@@ -71,8 +101,6 @@ services:
       - connection_strategy=lazy
       - --set
       - stream_large_bodies=1
-      - --listen-port
-      - ${WIREGUARD_PORT:-51820}
       - --scripts
       - /app/inspector_addon.py
     environment:
@@ -81,6 +109,7 @@ services:
       APPLICATION_KEY_FILE: /run/secrets/application_key
       CAPTURE_SPOOL: /var/lib/traffic-inspector/spool
       CAPTURE_STATE: /var/lib/traffic-inspector/state
+      PUBLIC_CA_ROOT: /var/lib/traffic-inspector/public-ca
       SAFE_DESTINATION_OVERRIDES: ${SAFE_DESTINATION_OVERRIDES:-}
       MAX_INGEST_QUEUE: 2048
     secrets:
@@ -91,12 +120,15 @@ services:
       - capture_spool:/var/lib/traffic-inspector/spool
       - capture_state:/var/lib/traffic-inspector/state
       - body_data:/var/lib/traffic-inspector/bodies
+      - public_ca:/var/lib/traffic-inspector/public-ca
     networks:
       - internal
       - edge
     depends_on:
       api:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     ports:
       - "${WIREGUARD_PORT:-51820}:${WIREGUARD_PORT:-51820}/udp"
     healthcheck:
@@ -120,16 +152,19 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    user: "10001:10001"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-      - mitmproxy_state:/srv/mitmproxy:ro
+      - public_ca:/srv/public-ca:ro
     networks:
       - internal
       - edge
     depends_on:
       api:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     ports:
       - "443:443/tcp"
       - "443:443/udp"
@@ -160,6 +195,7 @@ volumes:
   capture_spool:
   capture_state:
   mitmproxy_state:
+  public_ca:
   caddy_data:
   caddy_config:
 

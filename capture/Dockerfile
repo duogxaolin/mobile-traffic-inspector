@@ -3,8 +3,12 @@ RUN groupadd --system mitmproxy && useradd --system --gid mitmproxy --uid 10001 
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY inspector_addon.py healthcheck.py ./
-RUN mkdir -p /var/lib/traffic-inspector/spool /var/lib/traffic-inspector/state && chown -R mitmproxy:mitmproxy /var/lib/traffic-inspector /home/mitmproxy
+COPY inspector_addon.py healthcheck.py guard.py entrypoint.sh ./
+RUN chmod 755 /app/entrypoint.sh
+RUN mkdir -p /home/mitmproxy/.mitmproxy /var/lib/traffic-inspector/spool /var/lib/traffic-inspector/state /var/lib/traffic-inspector/bodies \
+    && chown -R mitmproxy:mitmproxy /home/mitmproxy /var/lib/traffic-inspector/spool /var/lib/traffic-inspector/state \
+    && chown -R mitmproxy:999 /var/lib/traffic-inspector/bodies \
+    && chmod 770 /var/lib/traffic-inspector/bodies
 USER mitmproxy
+ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE 51820/udp
-

@@ -17,4 +17,7 @@ web/vite.config.js.map
 web/node_modules/.tmp/
 web/*.tsbuildinfo
 backend/.venv/
+backend/build/
+backend/*.egg-info/
 capture/.venv/
+work/
