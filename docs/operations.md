@@ -5,14 +5,14 @@
 1. Confirm DNS resolves to aaPanel/Nginx on the VPS, SSL is enabled there, the reverse proxy points to `http://127.0.0.1:28080`, and the firewall permits only public TCP/443 plus UDP/51820. Do not publish port 8000, 5432 or a regular HTTP proxy port.
 2. Run `./scripts/generate-secrets.sh` once. The script refuses to overwrite existing secrets. It writes local Docker Compose secret files as read-only/readable (`0644`) so non-root containers can read them. Save the generated bootstrap password in a password manager, then remove it from shell history.
 3. Run `docker compose config -q` and `docker compose up -d --build`. Wait for all health checks to be healthy.
-4. Visit `https://SITE_ADDRESS/healthz` through aaPanel/Nginx and sign in to the panel. Confirm **System / Audit** can read disk free space.
-5. Open **Devices / Setup**, generate a WireGuard client profile, scan the QR code or download the `.conf`, then verify the public CA fingerprint before installing it.
+4. Visit `https://SITE_ADDRESS/healthz` through aaPanel/Nginx and sign in to the panel. Confirm **Hệ thống & nhật ký** can read disk free space.
+5. Open **Thiết bị & cài đặt**, generate a WireGuard client profile, scan the QR code or download the `.conf`, then verify the public CA fingerprint before installing it.
 
 ## aaPanel reverse proxy
 
 Create the aaPanel site on `SITE_ADDRESS`, enable SSL, and proxy it to `http://127.0.0.1:28080` by default. Keep WebSocket support enabled. Do not expose `PANEL_HTTP_PORT` publicly.
 
-If you manage Nginx manually, preserve `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, and `Connection` headers so Live Capture and auth cookies continue to work.
+If you manage Nginx manually, preserve `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, and `Connection` headers so **Theo dõi trực tiếp** and auth cookies continue to work.
 
 ## Client profile and CA verification
 
@@ -52,7 +52,7 @@ To rotate an admin password, change it through a future password-management endp
 
 * `capture` unhealthy: inspect `docker compose logs capture`; confirm the WireGuard UDP port is free and that `wireguard.conf` appears in the mitmproxy state volume. A revoked device is blocked from capture forwarding within the control poll interval, but an already issued WireGuard key remains valid until the capture state is rotated/recreated and replacement profiles are distributed.
 * `api` exits with `asyncpg.exceptions.InvalidPasswordError`: the PostgreSQL data volume was initialized with a different password than the current `secrets/postgres_password.txt`. If you need to keep the existing database, connect as the local `postgres` superuser and run `ALTER USER traffic_inspector WITH PASSWORD '...'` to match the secret file, then restart `api`. If this is a fresh install and you do not need the old database, remove the `postgres_data` volume and bootstrap again from the current secrets.
-* `caddy` cannot bind `127.0.0.1:28080`: another local process or container already owns the internal panel port. Change `PANEL_HTTP_PORT` in `.env` or stop the conflicting local service, then update the aaPanel/Nginx reverse proxy target. If the public site opens but Live Capture does not update, enable WebSocket proxying in aaPanel/Nginx.
+* `caddy` cannot bind `127.0.0.1:28080`: another local process or container already owns the internal panel port. Change `PANEL_HTTP_PORT` in `.env` or stop the conflicting local service, then update the aaPanel/Nginx reverse proxy target. If the public site opens but **Theo dõi trực tiếp** does not update, enable WebSocket proxying in aaPanel/Nginx.
 * aaPanel log view shows `exec /usr/bin/caddy: operation not permitted` but `docker compose ps` reports healthy containers: trust the Docker health checks and `curl http://127.0.0.1:28080/healthz` from the VPS first. In that case the aaPanel viewer is usually the misleading part, not the stack.
 * `volume-init` failed: inspect `docker compose logs volume-init`. It is the one-shot root-owned setup job that applies ownership to named volumes before the non-root API, capture and web services start.
 * TLS error/pinning: verify the device trusts the public CA and that the app is a debug build. Pinning and app-layer encryption are intentionally not bypassed.

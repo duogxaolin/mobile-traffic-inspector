@@ -1,6 +1,6 @@
 # Mobile Traffic Inspector
 
-Mobile Traffic Inspector là bảng điều hành tự lưu trữ, một quản trị viên, dùng để kiểm tra lưu lượng từ thiết bị iOS và Android **đã được cho phép**. Thiết bị đi vào một đường hầm WireGuard riêng; mitmproxy kết thúc đường hầm và truyền siêu dữ liệu/chunk nội dung đã mã hóa đến FastAPI + PostgreSQL. Bảng React hiển thị dữ liệu trực tiếp theo dạng danh sách/chi tiết và chỉ xóa bản ghi thô khi quản trị viên xác nhận.
+Mobile Traffic Inspector là bảng điều hành tự lưu trữ, một quản trị viên, dùng để kiểm tra lưu lượng từ thiết bị iOS và Android **đã được cho phép**. Thiết bị đi vào một đường hầm WireGuard riêng; mitmproxy kết thúc đường hầm và truyền siêu dữ liệu/chunk nội dung đã mã hóa đến FastAPI + PostgreSQL. Bảng React + Tailwind CSS hiển thị dữ liệu trực tiếp theo dạng danh sách/chi tiết và chỉ xóa bản ghi thô khi quản trị viên xác nhận.
 
 Dự án dành cho chủ ứng dụng, đội QA và người kiểm thử bảo mật. Không được thu thập lưu lượng của thiết bị, tài khoản hoặc con người khi chưa có sự đồng ý. Nội dung bắt được có thể chứa mật khẩu, token và dữ liệu cá nhân.
 
@@ -110,12 +110,12 @@ Mặc định không tự xóa theo retention và không có quota body ở tầ
 
 Cách đơn giản nhất là làm ngay trong admin panel:
 
-1. Mở **Devices / Setup**.
-2. Nhập tên thiết bị, bấm **Generate profile**.
-3. Quét QR bằng app WireGuard hoặc bấm **Download .conf** để tải profile.
+1. Mở **Thiết bị & cài đặt**.
+2. Nhập tên thiết bị, bấm **Tạo cấu hình**.
+3. Quét QR bằng app WireGuard hoặc bấm **Tải tệp .conf** để tải profile.
 4. Import profile vào WireGuard trên điện thoại được ủy quyền và bật tunnel.
 
-Profile chứa private key, nên chỉ mở/tải trên máy admin tin cậy. Nút **Generate profile** cũng tự đăng ký hoặc kích hoạt lại peer tương ứng trong danh sách thiết bị. Nếu cần fallback bằng SSH, vẫn có thể chạy:
+Profile chứa private key, nên chỉ mở/tải trên máy admin tin cậy. Nút **Tạo cấu hình** cũng tự đăng ký hoặc kích hoạt lại peer tương ứng trong danh sách thiết bị. Nếu cần fallback bằng SSH, vẫn có thể chạy:
 
 ```sh
 ./scripts/extract-wireguard.sh ./device.conf
@@ -138,24 +138,24 @@ Fingerprint do `./scripts/verify-ca.sh` hiển thị phải khớp giá trị tr
 - Trên điện thoại: app WireGuard.
 - Trên VPS: không cần cài tay nếu dùng repo này; `docker compose` đã dựng sẵn capture.
 - Để đọc được HTTPS: cài thêm CA public của hệ thống vào điện thoại test và tin cậy nó.
-- Để xem request: mở panel web, vào **Live Capture**, rồi bấm vào từng flow.
+- Để xem request: mở panel web, vào **Theo dõi trực tiếp**, rồi bấm vào từng lưu lượng.
 
 ### Cách dùng tối giản
 
 1. Cài app WireGuard trên điện thoại.
-2. Trong admin panel vào **Devices / Setup**, bấm **Generate profile**.
+2. Trong admin panel vào **Thiết bị & cài đặt**, bấm **Tạo cấu hình**.
 3. Quét QR hoặc tải/import file `.conf`.
 4. Bật tunnel.
 5. Cài CA public của hệ thống.
-6. Mở panel và kiểm tra request/response trong **Live Capture**.
+6. Mở panel và kiểm tra request/response trong **Theo dõi trực tiếp**.
 
 Nếu app dùng certificate pinning hoặc tự đi đường riêng, bạn vẫn có thể thấy metadata và flow lỗi, nhưng không ép đọc nội dung HTTPS được.
 
 ## Luồng sử dụng bảng điều khiển
 
-- **Live Capture** liệt kê flow của thiết bị đã đăng ký, lọc theo method/host/status/content type, dừng/tiếp tục ghi (network forwarding vẫn tiếp tục) và nhận stream WebSocket thời gian thực.
+- **Theo dõi trực tiếp** liệt kê lưu lượng của thiết bị đã đăng ký, lọc theo method/host/status/content type, dừng/tiếp tục ghi (network forwarding vẫn tiếp tục) và nhận stream WebSocket thời gian thực.
 - Màn chi tiết có tab Request, Response, Timing và WebSocket. Header nhạy cảm, query value và giá trị JSON/form/text đã parse bị che mặc định. Xác thực lại mật khẩu admin cấp reveal token 60 giây; mọi reveal/export raw đều ghi audit trail. Export đã che là mặc định.
-- **Sessions** liệt kê capture được giữ lại và yêu cầu API xác nhận trước khi xóa. **System / Audit** hiển thị body volume, dung lượng đĩa trống, ingest event đã spool/bị bỏ và thao tác nhạy cảm.
+- **Phiên đã lưu** liệt kê capture được giữ lại và yêu cầu API xác nhận trước khi xóa. **Hệ thống & nhật ký** hiển thị body volume, dung lượng đĩa trống, ingest event đã spool/bị bỏ và thao tác nhạy cảm.
 
 ## Vận hành và bảo mật
 
