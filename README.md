@@ -32,17 +32,17 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Stack mặc định chỉ bind panel vào localhost, ví dụ `127.0.0.1:8080`, để không tranh cổng `443` với aaPanel. Trong aaPanel, tạo website/domain có SSL rồi reverse proxy toàn bộ domain về:
+Stack mặc định chỉ bind panel vào localhost, ví dụ `127.0.0.1:28080`, để không tranh cổng `443` với aaPanel và cũng dễ nhận ra port nội bộ. Trong aaPanel, tạo website/domain có SSL rồi reverse proxy toàn bộ domain về:
 
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:28080
 ```
 
 Bật hỗ trợ WebSocket nếu aaPanel có tùy chọn này. Nếu cần cấu hình Nginx thủ công, phần proxy tối thiểu là:
 
 ```sh
 location / {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:28080;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -167,7 +167,7 @@ gh secret set --env production VPS_SSH_PRIVATE_KEY < ./deploy_ed25519
 gh secret set --env production VPS_SSH_KNOWN_HOSTS < ./known_hosts.verified
 ```
 
-Với repository private, hãy xác nhận gói GitHub/organization cho phép Actions, environment protection và reviewer bạn cần; chính sách/quyền phê duyệt có thể khác theo gói và organization. DNS thật, TCP/443, SSL ở aaPanel/Nginx và reverse proxy về `127.0.0.1:${PANEL_HTTP_PORT:-8080}` vẫn là điều kiện để panel public hoạt động. Workflow không biến hostname mẫu thành hệ thống public an toàn.
+Với repository private, hãy xác nhận gói GitHub/organization cho phép Actions, environment protection và reviewer bạn cần; chính sách/quyền phê duyệt có thể khác theo gói và organization. DNS thật, TCP/443, SSL ở aaPanel/Nginx và reverse proxy về `127.0.0.1:${PANEL_HTTP_PORT:-28080}` vẫn là điều kiện để panel public hoạt động. Workflow không biến hostname mẫu thành hệ thống public an toàn.
 
 Sau khi CI của commit trên `main` xanh và environment được phê duyệt, chạy deploy có kiểm soát bằng:
 

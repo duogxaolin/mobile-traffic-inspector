@@ -174,7 +174,7 @@ services:
       volume-init:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:${PANEL_HTTP_PORT:-8080}:8080/tcp"
+      - "127.0.0.1:${PANEL_HTTP_PORT:-28080}:8080/tcp"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2018/healthz"]
       interval: 15s
