@@ -11,7 +11,10 @@ services:
         ensure_owner() {
           [ "$(stat -c '%u:%g' "$1")" = "$2" ] || chown -R "$2" "$1"
         }
-        ensure_owner /bodies 10001:999
+        ensure_body_group() {
+          [ "$(stat -c '%g' "$1")" = "999" ] || chown -R 10001:999 "$1"
+        }
+        ensure_body_group /bodies
         ensure_owner /capture-spool 10001:999
         ensure_owner /capture-state 10001:999
         ensure_owner /mitmproxy-state 10001:999
