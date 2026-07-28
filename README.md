@@ -54,6 +54,23 @@ sha256sum mitmproxy-ca-cert.pem
 
 Fingerprint do `./scripts/verify-ca.sh` hiển thị phải khớp giá trị trao đổi ngoài kênh với người kiểm thử. Không sao chép `mitmproxy-ca.pem` (CA private key) ra khỏi VPS. Trên Android, chỉ cài CA vào thiết bị test và dùng Network Security Configuration bản debug tin user certificate; ứng dụng release thường bỏ qua user CA. Trên iOS, cài profile rồi bật tin cậy tại **Settings → General → About → Certificate Trust Settings**. Lưu lượng ứng dụng vẫn phải đi qua device tunnel; app pin chứng chỉ máy chủ sẽ thất bại hoặc hiện `not-captured`, không bị bypass.
 
+### WireGuard cần cài gì?
+
+- Trên điện thoại: app WireGuard.
+- Trên VPS: không cần cài tay nếu dùng repo này; `docker compose` đã dựng sẵn capture.
+- Để đọc được HTTPS: cài thêm CA public của hệ thống vào điện thoại test và tin cậy nó.
+- Để xem request: mở panel web, vào **Live Capture**, rồi bấm vào từng flow.
+
+### Cách dùng tối giản
+
+1. Cài app WireGuard trên điện thoại.
+2. Import file `device.conf`.
+3. Bật tunnel.
+4. Cài CA public của hệ thống.
+5. Mở panel và kiểm tra request/response trong **Live Capture**.
+
+Nếu app dùng certificate pinning hoặc tự đi đường riêng, bạn vẫn có thể thấy metadata và flow lỗi, nhưng không ép đọc nội dung HTTPS được.
+
 ## Luồng sử dụng bảng điều khiển
 
 - **Live Capture** liệt kê flow của thiết bị đã đăng ký, lọc theo method/host/status/content type, dừng/tiếp tục ghi (network forwarding vẫn tiếp tục) và nhận stream WebSocket thời gian thực.
