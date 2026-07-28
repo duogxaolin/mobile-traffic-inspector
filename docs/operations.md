@@ -43,6 +43,7 @@ To rotate an admin password, change it through a future password-management endp
 ## Troubleshooting
 
 * `capture` unhealthy: inspect `docker compose logs capture`; confirm the WireGuard UDP port is free and that `wireguard.conf` appears in the mitmproxy state volume. A revoked device is blocked from capture forwarding within the control poll interval, but an already issued WireGuard key remains valid until the capture state is rotated/recreated and replacement profiles are distributed.
+* `caddy` cannot bind `0.0.0.0:443`: another host process or container already owns the public HTTPS port. Run `ss -ltnp 'sport = :443'` and `docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep ':443'` to identify it. Free TCP/443 for the default deployment; using an existing reverse proxy requires a separate TLS/websocket/CA-download design.
 * `volume-init` failed: inspect `docker compose logs volume-init`. It is the one-shot root-owned setup job that applies ownership to named volumes before the non-root API, capture and web services start.
 * TLS error/pinning: verify the device trusts the public CA and that the app is a debug build. Pinning and app-layer encryption are intentionally not bypassed.
 * `spooledEvents` grows: inspect the API/Postgres health and free disk. Capture keeps forwarding traffic while it spools bounded metadata; replay/cleanup is an operator action.

@@ -33,6 +33,15 @@ docker compose ps
 
 Caddy xin chứng chỉ bằng TLS-ALPN ở cổng 443. Mở `https://$SITE_ADDRESS/` và đăng nhập `admin` bằng mật khẩu bootstrap do `generate-secrets.sh` in ra. Bảng điều khiển là HTTP API client duy nhất; PostgreSQL và ingest API không có host port.
 
+Nếu `docker compose up` báo `failed to bind host port 0.0.0.0:443/tcp: address already in use`, nghĩa là VPS đang có dịch vụ khác chiếm HTTPS public. Cách đơn giản và đúng nhất cho triển khai mặc định là giải phóng cổng 443 cho Caddy của dự án này, rồi chạy lại `docker compose up -d --build`. Kiểm tra thủ phạm bằng:
+
+```sh
+ss -ltnp 'sport = :443'
+docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep ':443'
+```
+
+Nếu đó là Nginx/Apache/OpenLiteSpeed/aaPanel không còn dùng cho hostname này, hãy dừng hoặc chuyển nó sang dịch vụ/domain khác trước khi bật stack. Nếu bắt buộc giữ web server hiện có ở 443, cần cấu hình reverse proxy riêng và kiểm soát TLS/websocket/đường dẫn CA thủ công; đây không phải luồng tối giản.
+
 Mặc định không tự xóa theo retention và không có quota body ở tầng ứng dụng. `RETENTION_DAYS` khác 0 xóa session quá hạn; `STORAGE_QUOTA_BYTES` khác 0 sẽ dọn các session cũ nhất sau khi flow hoàn tất (session đang hoạt động có thể tạm thời vượt giới hạn). `PREVIEW_BYTES` chỉ giới hạn phần bảng tải để xem trước, không cắt ngắn body đã mã hóa trên đĩa.
 
 ## Đăng ký thiết bị WireGuard và tin CA
