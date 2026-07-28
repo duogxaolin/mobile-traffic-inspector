@@ -76,12 +76,15 @@ jobs:
       - working-directory: web
         run: npm run build
       - working-directory: web
-        run: npm audit --omit=dev
+        run: npm audit --audit-level=high
 
   infrastructure:
     name: Infrastructure checks
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      SITE_ADDRESS: inspector.example.test
+      ACME_EMAIL: ops@example.test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,12 +92,9 @@ jobs:
       - name: Create empty local secret placeholders for Compose validation
         run: |
           install -d -m 700 secrets
-          touch secrets/postgres_password.txt secrets/application_key.txt secrets/session_secret.txt
+          touch secrets/postgres_password.txt secrets/database_url.txt secrets/application_key.txt secrets/session_secret.txt
           touch secrets/ingest_token.txt secrets/admin_password.txt
       - name: Validate Compose and shell scripts
-        env:
-          SITE_ADDRESS: inspector.example.test
-          ACME_EMAIL: ops@example.test
         run: |
           docker compose config -q
           bash -n scripts/*.sh

@@ -79,7 +79,15 @@ Các action được pin theo commit SHA và workflow chỉ có `contents: read`
 
 ### Chuẩn bị VPS cho deploy
 
-Clone repository vào một thư mục riêng của user deploy (ví dụ `/srv/mobile-traffic-inspector`), tạo `.env` và `secrets/` bằng quy trình khởi động nhanh ở trên, rồi xác minh thủ công `docker compose up -d --build` hoạt động. User SSH phải chỉ có quyền cần thiết để chạy Docker Compose tại thư mục đó. Không chạy workflow bằng root.
+Vì repository là private, VPS cần một **GitHub deploy key đọc repository riêng** trước khi clone. Tạo key Ed25519 trên VPS cho mục đích này, thêm public key vào **Repository settings → Deploy keys** với quyền read-only, và xác minh GitHub SSH host key theo fingerprint công bố chính thức/trong kênh độc lập trước khi thêm vào `~/.ssh/known_hosts` của user deploy. Key này chỉ để VPS `git fetch` mã nguồn; nó không phải `VPS_SSH_PRIVATE_KEY` mà GitHub Actions dùng để đăng nhập vào VPS.
+
+Sau đó clone SSH vào một thư mục riêng của user deploy (ví dụ `/srv/mobile-traffic-inspector`), tạo `.env` và `secrets/` bằng quy trình khởi động nhanh ở trên, rồi xác minh thủ công `docker compose up -d --build` hoạt động:
+
+```sh
+git clone git@github.com:duogxaolin/mobile-traffic-inspector.git /srv/mobile-traffic-inspector
+```
+
+User SSH phải chỉ có quyền cần thiết để chạy Docker Compose tại thư mục đó. Không chạy workflow bằng root.
 
 Script deploy từ chối worktree có thay đổi cục bộ, lấy `origin/main`, chỉ chấp nhận SHA đúng bằng revision hiện tại của `origin/main`, dùng `flock` để chống deploy chồng nhau, và chạy `docker compose up -d --build --remove-orphans --wait`. Nó kiểm tra API/Caddy nội bộ lẫn `https://…/healthz` công khai. Khi lỗi sau lúc chuyển revision, script checkout lại revision trước và thử khởi động lại stack trước đó; không chạy `git reset --hard`, không xóa volume, `.env` hay secret.
 

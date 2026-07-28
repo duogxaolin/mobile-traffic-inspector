@@ -21,6 +21,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      SITE_ADDRESS: inspector.example.test
+      ACME_EMAIL: ops@example.test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,12 +32,9 @@ jobs:
       - name: Create empty local secret placeholders for Compose validation
         run: |
           install -d -m 700 secrets
-          touch secrets/postgres_password.txt secrets/application_key.txt secrets/session_secret.txt
+          touch secrets/postgres_password.txt secrets/database_url.txt secrets/application_key.txt secrets/session_secret.txt
           touch secrets/ingest_token.txt secrets/admin_password.txt
       - name: Validate deploy inputs and local artifacts
-        env:
-          SITE_ADDRESS: inspector.example.test
-          ACME_EMAIL: ops@example.test
         run: |
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           docker compose config -q
@@ -67,11 +67,12 @@ jobs:
       - name: Validate deployment configuration
         run: |
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$VPS_PORT" =~ ^[1-9][0-9]{0,4}$ ]]
+          (( VPS_PORT <= 65535 ))
           [[ "$VPS_APP_DIR" == /* ]]
           [[ "$APP_URL" == https://* ]]
-          test -n "$VPS_HOST"
-          test -n "$VPS_USER"
+          [[ "$VPS_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
           test -n "$VPS_SSH_PRIVATE_KEY"
           test -n "$VPS_SSH_KNOWN_HOSTS"
       - name: Install deploy SSH credentials
