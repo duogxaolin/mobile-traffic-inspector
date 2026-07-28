@@ -108,13 +108,20 @@ Mặc định không tự xóa theo retention và không có quota body ở tầ
 
 ## Đăng ký thiết bị WireGuard và tin CA
 
-Tạo một profile WireGuard client từ container capture đang chạy. Profile chứa private key: chỉ giữ trên thiết bị và xóa mọi bản sao trên máy trạm sau khi import.
+Cách đơn giản nhất là làm ngay trong admin panel:
+
+1. Mở **Devices / Setup**.
+2. Nhập tên thiết bị, bấm **Generate profile**.
+3. Quét QR bằng app WireGuard hoặc bấm **Download .conf** để tải profile.
+4. Import profile vào WireGuard trên điện thoại được ủy quyền và bật tunnel.
+
+Profile chứa private key, nên chỉ mở/tải trên máy admin tin cậy. Nút **Generate profile** cũng tự đăng ký hoặc kích hoạt lại peer tương ứng trong danh sách thiết bị. Nếu cần fallback bằng SSH, vẫn có thể chạy:
 
 ```sh
 ./scripts/extract-wireguard.sh ./device.conf
 ```
 
-Import `device.conf` vào WireGuard trên thiết bị được ủy quyền và kích hoạt. Đăng ký public key peer đã suy ra tại **Devices / Setup** (hoặc gọi `POST /api/devices` đã xác thực). Hãy revoke bản ghi trước khi bỏ hoặc thay thiết bị.
+Profile hiện tại là profile client do mitmproxy tạo trong capture container, giống file mà script SSH copy ra. Hãy revoke bản ghi trước khi bỏ hoặc thay thiết bị.
 
 Chỉ tải public proxy CA từ bảng điều khiển hoặc:
 
@@ -136,10 +143,11 @@ Fingerprint do `./scripts/verify-ca.sh` hiển thị phải khớp giá trị tr
 ### Cách dùng tối giản
 
 1. Cài app WireGuard trên điện thoại.
-2. Import file `device.conf`.
-3. Bật tunnel.
-4. Cài CA public của hệ thống.
-5. Mở panel và kiểm tra request/response trong **Live Capture**.
+2. Trong admin panel vào **Devices / Setup**, bấm **Generate profile**.
+3. Quét QR hoặc tải/import file `.conf`.
+4. Bật tunnel.
+5. Cài CA public của hệ thống.
+6. Mở panel và kiểm tra request/response trong **Live Capture**.
 
 Nếu app dùng certificate pinning hoặc tự đi đường riêng, bạn vẫn có thể thấy metadata và flow lỗi, nhưng không ép đọc nội dung HTTPS được.
 

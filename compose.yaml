@@ -72,6 +72,7 @@ services:
       PREVIEW_BYTES: ${PREVIEW_BYTES:-262144}
       RETENTION_DAYS: ${RETENTION_DAYS:-0}
       STORAGE_QUOTA_BYTES: ${STORAGE_QUOTA_BYTES:-0}
+      WIREGUARD_PROFILE_PATH: /var/lib/traffic-inspector/mitmproxy/wireguard.conf
     secrets:
       - database_url
       - application_key
@@ -80,6 +81,7 @@ services:
       - admin_password
     volumes:
       - body_data:/var/lib/traffic-inspector/bodies
+      - mitmproxy_state:/var/lib/traffic-inspector/mitmproxy:ro
     networks:
       - internal
     depends_on:

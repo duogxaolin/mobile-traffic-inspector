@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
-from uuid import UUID
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +19,10 @@ class DeviceInput(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     peer_public_key: str = Field(min_length=32, max_length=128)
     tunnel_ip: str | None = Field(default=None, max_length=64)
+
+
+class DeviceProfileInput(BaseModel):
+    name: str = Field(default="Mobile device", min_length=1, max_length=128)
 
 
 class PauseInput(BaseModel):

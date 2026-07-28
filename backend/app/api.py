@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import base64
+import re
 import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import x25519
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import desc, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Settings, get_settings
@@ -17,7 +21,16 @@ from .dependencies import require_ingest_token
 from .events import hub
 from .models import Admin, AuditEvent, CaptureSession, Device, Flow, SystemState, WebSocketMessage
 from .redaction import redact_body, redact_headers, redact_query
-from .schemas import CaptureMetrics, CompleteEvent, DeviceInput, HeaderEvent, IngestEvent, PauseInput, ReauthInput
+from .schemas import (
+    CaptureMetrics,
+    CompleteEvent,
+    DeviceInput,
+    DeviceProfileInput,
+    HeaderEvent,
+    IngestEvent,
+    PauseInput,
+    ReauthInput,
+)
 from .security import current_admin, require_csrf, reveal_store, verify_password
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
@@ -31,6 +44,42 @@ def _decode_encrypted(value: str | None) -> bytes | None:
         return base64.b64decode(value, validate=True)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="invalid encrypted field") from exc
+
+
+def _wireguard_config_value(profile: str, key: str) -> str | None:
+    for line in profile.splitlines():
+        name, separator, value = line.partition("=")
+        if separator and name.strip() == key:
+            return value.strip()
+    return None
+
+
+def _derive_wireguard_public_key(private_key_b64: str) -> str:
+    try:
+        private_bytes = base64.b64decode(private_key_b64, validate=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="wireguard private key is not base64") from exc
+    if len(private_bytes) != 32:
+        raise HTTPException(status_code=500, detail="wireguard private key must be 32 bytes")
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_bytes)
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return base64.b64encode(public_bytes).decode()
+
+
+def _wireguard_tunnel_ip(profile: str) -> str | None:
+    address = _wireguard_config_value(profile, "Address")
+    if not address:
+        return None
+    first = address.split(",", 1)[0].strip()
+    return first.split("/", 1)[0] if first else None
+
+
+def _safe_profile_filename(name: str) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", name.strip()).strip(".-")
+    return f"{safe_name or 'device'}.conf"
 
 
 def _flow_summary(flow: Flow) -> dict:
@@ -483,6 +532,50 @@ async def create_device(
     await _audit(db, request, admin, "device.created", "device", str(device.id))
     await db.commit()
     return {"id": str(device.id), "name": device.name}
+
+
+@router.post("/devices/profile", status_code=201)
+async def create_device_profile(
+    payload: DeviceProfileInput,
+    request: Request,
+    admin: Admin = Depends(current_admin),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    try:
+        profile = settings.wireguard_profile_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="wireguard profile is not ready yet") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail="wireguard profile is not readable by api") from exc
+    private_key = _wireguard_config_value(profile, "PrivateKey")
+    if not private_key:
+        raise HTTPException(status_code=500, detail="wireguard profile has no private key")
+    peer_public_key = _derive_wireguard_public_key(private_key)
+    tunnel_ip = _wireguard_tunnel_ip(profile)
+    device = await db.scalar(select(Device).where(Device.peer_public_key == peer_public_key))
+    if device is None:
+        device = Device(name=payload.name, peer_public_key=peer_public_key, tunnel_ip=tunnel_ip)
+        db.add(device)
+    else:
+        device.name = payload.name
+        device.tunnel_ip = tunnel_ip
+        device.revoked_at = None
+    try:
+        await db.flush()
+        await _audit(db, request, admin, "device.profile.generated", "device", str(device.id))
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="wireguard tunnel IP is already registered") from exc
+    return {
+        "deviceId": str(device.id),
+        "name": device.name,
+        "profile": profile + "\n",
+        "peerPublicKey": peer_public_key,
+        "tunnelIp": tunnel_ip,
+        "filename": _safe_profile_filename(payload.name),
+    }
 
 
 @router.post("/devices/{device_id}/revoke")

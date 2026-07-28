@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     ingest_token: str = ""
     admin_password: str = ""
     body_root: Path = Path("/var/lib/traffic-inspector/bodies")
+    wireguard_profile_path: Path = Path("/var/lib/traffic-inspector/mitmproxy/wireguard.conf")
     preview_bytes: int = Field(default=262_144, ge=4096)
     retention_days: int = Field(default=0, ge=0)
     storage_quota_bytes: int = Field(default=0, ge=0)
@@ -49,6 +50,9 @@ class Settings(BaseSettings):
             ingest_token=_secret("INGEST_TOKEN"),
             admin_password=_secret("ADMIN_PASSWORD"),
             body_root=Path(os.getenv("BODY_ROOT", "/var/lib/traffic-inspector/bodies")),
+            wireguard_profile_path=Path(
+                os.getenv("WIREGUARD_PROFILE_PATH", "/var/lib/traffic-inspector/mitmproxy/wireguard.conf")
+            ),
             preview_bytes=int(os.getenv("PREVIEW_BYTES", "262144")),
             retention_days=int(os.getenv("RETENTION_DAYS", "0")),
             storage_quota_bytes=int(os.getenv("STORAGE_QUOTA_BYTES", "0")),
@@ -59,4 +63,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings.load()
-
