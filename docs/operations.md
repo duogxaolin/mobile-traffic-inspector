@@ -68,3 +68,9 @@ docker compose ps
 Then re-check `https://SITE_ADDRESS/healthz` through aaPanel/Nginx. The public reverse proxy usually does not need changes unless `PANEL_HTTP_PORT` changed.
 
 If your aaPanel web root already lives under `/www/wwwroot/...`, keep using that absolute path everywhere instead of the `/srv/mobile-traffic-inspector` example in the README. The important part is consistency: clone once, then reuse the same `VPS_APP_DIR` for every deploy command.
+
+## Common first-run mistakes
+
+* `fatal: destination path 'mobile-traffic-inspector' already exists`: the repo is already cloned. Do not clone again into the same folder; use `git pull --ff-only origin main` inside the existing directory.
+* `Refusing to overwrite secrets/postgres_password.txt`: the secrets were already generated. That script is one-time only unless you intentionally rotate secrets.
+* `container mobile-traffic-inspector-api-1 is unhealthy`: inspect `docker compose logs api --tail 200` from the actual repo directory. This is usually a runtime/config issue, not a build failure.

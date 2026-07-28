@@ -80,6 +80,16 @@ docker compose up -d --build
 4. Trong aaPanel, bật SSL cho domain và reverse proxy về `http://127.0.0.1:28080`.
 5. Mở `https://domain-cua-ban` để dùng panel.
 
+Nếu repo đã tồn tại rồi, đừng `git clone` lại vào cùng thư mục. Chỉ cần:
+
+```sh
+cd /www/wwwroot/proxy/mobile-traffic-inspector
+git pull --ff-only origin main
+docker compose up -d --build
+```
+
+Nếu `./scripts/generate-secrets.sh` báo `Refusing to overwrite secrets/...`, đó là bình thường: secrets đã được tạo rồi. Chỉ chạy script này một lần khi cài mới, trừ khi bạn cố tình muốn xoay secret.
+
 ### Deploy lại / cập nhật trên VPS
 
 Khi có commit mới trên `main`, đăng nhập VPS rồi chạy:
