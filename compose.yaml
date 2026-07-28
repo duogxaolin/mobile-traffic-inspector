@@ -8,9 +8,17 @@ services:
       - /bin/sh
       - -ec
       - |
-        chown -R 10001:999 /bodies /capture-spool /capture-state /mitmproxy-state
+        ensure_owner() {
+          [ "$(stat -c '%u:%g' "$1")" = "$2" ] || chown -R "$2" "$1"
+        }
+        ensure_owner /bodies 10001:999
+        ensure_owner /capture-spool 10001:999
+        ensure_owner /capture-state 10001:999
+        ensure_owner /mitmproxy-state 10001:999
         chmod 0770 /bodies /capture-spool /capture-state /mitmproxy-state
-        chown -R 10001:10001 /public-ca /caddy-data /caddy-config
+        ensure_owner /public-ca 10001:10001
+        ensure_owner /caddy-data 10001:10001
+        ensure_owner /caddy-config 10001:10001
         chmod 0750 /public-ca /caddy-data /caddy-config
     volumes:
       - body_data:/bodies
@@ -169,7 +177,7 @@ services:
       - "443:443/tcp"
       - "443:443/udp"
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2018/healthz"]
       interval: 15s
       timeout: 5s
       retries: 10

@@ -1,3 +1,8 @@
+http://:2018 {
+	bind 127.0.0.1
+	reverse_proxy /healthz api:8000
+}
+
 {$SITE_ADDRESS} {
 	tls {$ACME_EMAIL}
 	encode zstd gzip

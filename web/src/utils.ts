@@ -13,3 +13,7 @@ export function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
 }
 
+export function filenameFromDisposition(value: string | null, fallback: string) {
+  const match = value?.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}

@@ -26,6 +26,11 @@ class PauseInput(BaseModel):
     paused: bool
 
 
+class CaptureMetrics(BaseModel):
+    spooled_events: int = Field(ge=0)
+    dropped_events: int = Field(ge=0)
+
+
 class HeaderEvent(BaseModel):
     event: Literal["headers"]
     capture_id: str = Field(max_length=128)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatDate, formatTime } from "./utils";
+import { filenameFromDisposition, formatBytes, formatDate, formatTime } from "./utils";
 
 describe("display formatting", () => {
   it("uses readable binary units and keeps byte precision", () => {
@@ -15,3 +15,7 @@ describe("display formatting", () => {
   });
 });
 
+it("uses an attachment filename while keeping a safe fallback", () => {
+  expect(filenameFromDisposition('attachment; filename="flow.json"', "capture.bin")).toBe("flow.json");
+  expect(filenameFromDisposition(null, "capture.bin")).toBe("capture.bin");
+});

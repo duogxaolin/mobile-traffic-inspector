@@ -16,7 +16,9 @@
 
 ## Capture behavior and limits
 
-The addon sends a `headers` event before a `complete` or `error` event. A bounded queue protects forwarding when PostgreSQL/API is slow; failed events are encrypted-body paths plus encrypted metadata in the capture spool. The panel's `spooledEvents`/`droppedEvents` counters make ingest pressure visible. A flow can therefore be `loading`, `complete`, `error`, `truncated` (preview only), `not-captured` (pinning/protocol), or `disconnected` (panel WebSocket). Pause stops recording and discards capture data while forwarding packets normally.
+The addon sends a `headers` event before a `complete` or `error` event. A bounded queue protects forwarding when PostgreSQL/API is slow; failed events are written to a spool and replayed at-least-once after recovery, with removal only after successful acknowledgement. The ingest endpoint is idempotent for replayed flow and message events. The capture heartbeat reports current spooled/dropped counts to the panel. A flow can therefore be `loading`, `complete`, `error`, `truncated` (preview only), `not-captured` (pinning/protocol), or `disconnected` (panel WebSocket). Pause stops recording and discards capture data while forwarding packets normally.
+
+Retention and quota remain unlimited when their settings are `0`. A nonzero retention period deletes expired sessions and their encrypted payload files. A nonzero quota prunes the oldest prior sessions after a completed flow; it deliberately does not delete the session currently completing, so a single active session can briefly exceed the quota.
 
 Raw body files use AES-GCM records under the body volume. The API decrypts records as a streaming response; it does not load an entire body to reveal or download it. The browser preview is capped by `PREVIEW_BYTES`, and a raw reveal expires after 60 seconds. Redaction covers Authorization/Proxy-Authorization/Cookie/Set-Cookie/API keys/tokens/passwords/OTP/secrets in headers, query fields and structured text. Binary previews are replaced with an explicit redacted marker until re-authentication.
 
@@ -40,7 +42,7 @@ To rotate an admin password, change it through a future password-management endp
 
 ## Troubleshooting
 
-* `capture` unhealthy: inspect `docker compose logs capture`; confirm the WireGuard UDP port is free and that `wireguard.conf` appears in the mitmproxy state volume.
+* `capture` unhealthy: inspect `docker compose logs capture`; confirm the WireGuard UDP port is free and that `wireguard.conf` appears in the mitmproxy state volume. A revoked device is blocked from capture forwarding within the control poll interval, but an already issued WireGuard key remains valid until the capture state is rotated/recreated and replacement profiles are distributed.
 * `volume-init` failed: inspect `docker compose logs volume-init`. It is the one-shot root-owned setup job that applies ownership to named volumes before the non-root API, capture and web services start.
 * TLS error/pinning: verify the device trusts the public CA and that the app is a debug build. Pinning and app-layer encryption are intentionally not bypassed.
 * `spooledEvents` grows: inspect the API/Postgres health and free disk. Capture keeps forwarding traffic while it spools bounded metadata; replay/cleanup is an operator action.

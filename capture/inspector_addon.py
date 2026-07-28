@@ -24,7 +24,7 @@ import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mitmproxy import exceptions, http
 
-from guard import destination_allowed
+from guard import client_allowed, resolve_destination
 
 MAGIC = b"MTIB1\x00"
 CHUNK_SIZE = 1024 * 1024
@@ -104,9 +104,11 @@ class InspectorAddon:
         self.recording = True
         self._worker_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._replay_task: asyncio.Task | None = None
         self._client: httpx.AsyncClient | None = None
         self._spooled = 0
         self._dropped = 0
+        self.revoked_tunnel_ips: set[str] = set()
         overrides = [item.strip() for item in os.getenv("SAFE_DESTINATION_OVERRIDES", "").split(",") if item.strip()]
         self.overrides = set(overrides)
 
@@ -117,11 +119,12 @@ class InspectorAddon:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0))
         self._worker_task = asyncio.create_task(self._worker())
         self._heartbeat_task = asyncio.create_task(self._heartbeat())
+        self._replay_task = asyncio.create_task(self._replay_spool())
 
     async def done(self) -> None:
         for writer in list(self.writers.values()):
             writer.close()
-        for task in (self._worker_task, self._heartbeat_task):
+        for task in (self._worker_task, self._heartbeat_task, self._replay_task):
             if task:
                 task.cancel()
         if self._client:
@@ -146,7 +149,16 @@ class InspectorAddon:
                         headers={"Authorization": f"Bearer {self.token}"},
                     )
                     if response.is_success:
-                        self.recording = bool(response.json().get("recording", True))
+                        control = response.json()
+                        self.recording = bool(control.get("recording", True))
+                        self.revoked_tunnel_ips = {
+                            str(address) for address in control.get("revokedTunnelIps", []) if address
+                        }
+                    await self._client.post(
+                        self.api_url.rsplit("/ingest", 1)[0] + "/metrics",
+                        json={"spooled_events": self._spooled, "dropped_events": self._dropped},
+                        headers={"Authorization": f"Bearer {self.token}"},
+                    )
             except Exception:
                 pass
             await asyncio.sleep(3)
@@ -191,6 +203,40 @@ class InspectorAddon:
             headers={"Authorization": f"Bearer {self.token}"},
         )
         response.raise_for_status()
+
+    async def _replay_spool(self) -> None:
+        """Replay metadata after recovery; files are removed only after all sends succeed."""
+        while True:
+            try:
+                for source in sorted(self.spool_root.glob("events-*.jsonl*")):
+                    claimed = source.with_name(f"{source.name}.replaying-{uuid.uuid4().hex}")
+                    try:
+                        source.rename(claimed)
+                    except FileNotFoundError:
+                        continue
+                    lines: list[str] = []
+                    index = 0
+                    try:
+                        lines = claimed.read_text(encoding="utf-8").splitlines()
+                        for index, line in enumerate(lines):
+                            await self._send(json.loads(line))
+                            index += 1
+                    except Exception:
+                        # A concurrent producer writes a fresh source file. Append the
+                        # unsent claimed events to it before retaining no state only on
+                        # success; a crash can duplicate, never lose, an event.
+                        with source.open("a", encoding="utf-8") as target:
+                            if lines[index:]:
+                                target.write("\n".join(lines[index:]) + "\n")
+                            target.flush()
+                            os.fsync(target.fileno())
+                        if lines:
+                            claimed.unlink(missing_ok=True)
+                    else:
+                        claimed.unlink()
+            except Exception:
+                pass
+            await asyncio.sleep(3)
 
     def _id(self, flow) -> str:
         return str(getattr(flow, "id", uuid.uuid4().hex))
@@ -241,17 +287,29 @@ class InspectorAddon:
         writer.close()
         return writer.relative, writer.size
 
-    def guard_destination(self, host: str | None, port: int | None = None) -> None:
-        if not destination_allowed(host, port, self.overrides):
+    def guard_destination(self, host: str | None, port: int | None = None) -> str:
+        resolved = resolve_destination(host, port, self.overrides)
+        if not resolved:
+            raise exceptions.KillFlow
+        return resolved
+
+    def pin_destination(self, server) -> None:
+        address = getattr(server, "address", None)
+        if not address:
+            raise exceptions.KillFlow
+        server.address = (self.guard_destination(address[0], address[1]), address[1])
+
+    def guard_client(self, flow) -> None:
+        peer_ip = self._peer_ip(flow)
+        if not client_allowed(peer_ip, self.revoked_tunnel_ips):
             raise exceptions.KillFlow
 
     def server_connect(self, data) -> None:
-        address = getattr(data.server, "address", None)
-        if address:
-            self.guard_destination(address[0], address[1])
+        self.pin_destination(data.server)
 
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         try:
+            self.guard_client(flow)
             self.guard_destination(flow.request.host, flow.request.port)
         except exceptions.KillFlow:
             raise
@@ -345,7 +403,8 @@ class InspectorAddon:
 
     def tcp_start(self, flow) -> None:
         try:
-            self.guard_destination(flow.server_conn.address[0], flow.server_conn.address[1])
+            self.guard_client(flow)
+            self.pin_destination(flow.server_conn)
         except (exceptions.KillFlow, AttributeError):
             raise exceptions.KillFlow
         self.flows[self._id(flow)] = {"started": datetime.now(UTC), "session_key": self._session_key(flow)}
@@ -374,7 +433,8 @@ class InspectorAddon:
 
     def udp_start(self, flow) -> None:
         try:
-            self.guard_destination(flow.server_conn.address[0], flow.server_conn.address[1])
+            self.guard_client(flow)
+            self.pin_destination(flow.server_conn)
         except (exceptions.KillFlow, AttributeError):
             raise exceptions.KillFlow
         self.flows[self._id(flow)] = {"started": datetime.now(UTC), "session_key": self._session_key(flow)}

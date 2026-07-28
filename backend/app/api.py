@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import base64
-import json
 import shutil
 import uuid
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import and_, delete, desc, func, or_, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Settings, get_settings
@@ -19,7 +17,7 @@ from .dependencies import require_ingest_token
 from .events import hub
 from .models import Admin, AuditEvent, CaptureSession, Device, Flow, SystemState, WebSocketMessage
 from .redaction import redact_body, redact_headers, redact_query
-from .schemas import CompleteEvent, DeviceInput, HeaderEvent, IngestEvent, PauseInput, ReauthInput, WebSocketEvent
+from .schemas import CaptureMetrics, CompleteEvent, DeviceInput, HeaderEvent, IngestEvent, PauseInput, ReauthInput
 from .security import current_admin, require_csrf, reveal_store, verify_password
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
@@ -76,6 +74,96 @@ async def _audit(
             source_ip=request.client.host if request.client else None,
         )
     )
+
+
+async def _session_payload_size(db: AsyncSession, session_id: uuid.UUID) -> int:
+    body_size = await db.scalar(
+        select(func.coalesce(func.sum(Flow.request_body_size + Flow.response_body_size), 0)).where(
+            Flow.session_id == session_id
+        )
+    )
+    websocket_size = await db.scalar(
+        select(func.coalesce(func.sum(WebSocketMessage.payload_size), 0))
+        .join(Flow, WebSocketMessage.flow_id == Flow.id)
+        .where(Flow.session_id == session_id)
+    )
+    return int(body_size or 0) + int(websocket_size or 0)
+
+
+async def _purge_session(
+    db: AsyncSession, session: CaptureSession, settings: Settings, action: str | None
+) -> int:
+    paths = (
+        await db.execute(
+            select(Flow.request_body_path, Flow.response_body_path, WebSocketMessage.payload_path)
+            .outerjoin(WebSocketMessage, WebSocketMessage.flow_id == Flow.id)
+            .where(Flow.session_id == session.id)
+        )
+    ).all()
+    vault = Vault(settings.application_key, settings.body_root)
+    for request_path, response_path, websocket_path in paths:
+        for relative in (request_path, response_path, websocket_path):
+            if relative:
+                vault.safe_path(relative).unlink(missing_ok=True)
+    removed = await _session_payload_size(db, session.id)
+    session.deleted_at = datetime.now(UTC)
+    if action:
+        db.add(AuditEvent(action=action, target_type="session", target_id=str(session.id)))
+    return removed
+
+
+async def _enforce_storage_limits(
+    db: AsyncSession, settings: Settings, preserve_session_id: uuid.UUID | None = None
+) -> None:
+    if settings.retention_days:
+        cutoff = datetime.now(UTC) - timedelta(days=settings.retention_days)
+        expired = (
+            await db.scalars(
+                select(CaptureSession).where(
+                    CaptureSession.deleted_at.is_(None), CaptureSession.started_at < cutoff
+                )
+            )
+        ).all()
+        for session in expired:
+            await _purge_session(db, session, settings, "retention.deleted")
+    if not settings.storage_quota_bytes:
+        return
+    active = (
+        await db.scalars(select(CaptureSession).where(CaptureSession.deleted_at.is_(None)))
+    ).all()
+    usage = sum([await _session_payload_size(db, session.id) for session in active])
+    if usage <= settings.storage_quota_bytes:
+        return
+    candidates = (
+        await db.scalars(
+            select(CaptureSession)
+            .where(CaptureSession.deleted_at.is_(None), CaptureSession.id != preserve_session_id)
+            .order_by(CaptureSession.started_at)
+        )
+    ).all()
+    for session in candidates:
+        if usage <= settings.storage_quota_bytes:
+            break
+        usage -= await _purge_session(db, session, settings, "quota.deleted")
+
+
+def _websocket_preview(message: WebSocketMessage, vault: Vault, raw: bool, max_bytes: int) -> dict:
+    if not message.payload_path:
+        return {"state": "not-captured", "encoding": "base64", "content": "", "view": "none", "raw": raw, "truncated": False}
+    try:
+        content, truncated = vault.read_preview(message.payload_path, max_bytes)
+    except (FileNotFoundError, ValueError):
+        return {"state": "error", "encoding": "base64", "content": "", "view": "error", "raw": raw, "truncated": False}
+    content_type = "text/plain" if message.opcode == 1 else "application/octet-stream"
+    rendered, view = (content, "raw") if raw else redact_body(content, content_type)
+    return {
+        "state": "truncated" if truncated else "complete",
+        "encoding": "base64",
+        "content": base64.b64encode(rendered).decode(),
+        "view": view,
+        "raw": raw,
+        "truncated": truncated,
+    }
 
 
 @router.get("/flows")
@@ -229,6 +317,43 @@ async def download_body(
     )
 
 
+@router.get("/flows/{flow_id}/websocket")
+async def websocket_messages(
+    flow_id: uuid.UUID,
+    x_reveal_token: str | None = Header(default=None),
+    admin: Admin = Depends(current_admin),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    flow = await db.get(Flow, flow_id)
+    if flow is None:
+        raise HTTPException(status_code=404, detail="flow not found")
+    raw = reveal_store.verify(x_reveal_token, admin.id, flow.id)
+    vault = Vault(settings.application_key, settings.body_root)
+    rows = (
+        await db.scalars(
+            select(WebSocketMessage)
+            .where(WebSocketMessage.flow_id == flow.id)
+            .order_by(WebSocketMessage.sequence, WebSocketMessage.created_at)
+        )
+    ).all()
+    return {
+        "items": [
+            {
+                "id": str(message.id),
+                "sequence": message.sequence,
+                "fromClient": message.from_client,
+                "opcode": message.opcode,
+                "payloadSize": message.payload_size,
+                "timestamp": message.timestamp.isoformat(),
+                "payload": _websocket_preview(message, vault, raw, settings.preview_bytes),
+            }
+            for message in rows
+        ],
+        "raw": raw,
+    }
+
+
 @router.post("/flows/{flow_id}/reveal")
 async def reveal_flow(
     flow_id: uuid.UUID,
@@ -322,17 +447,7 @@ async def delete_session(
     session = await db.get(CaptureSession, session_id)
     if session is None or session.deleted_at is not None:
         raise HTTPException(status_code=404, detail="session not found")
-    paths = (
-        await db.execute(
-            select(Flow.request_body_path, Flow.response_body_path).where(Flow.session_id == session_id)
-        )
-    ).all()
-    vault = Vault(settings.application_key, settings.body_root)
-    for request_path, response_path in paths:
-        for relative in (request_path, response_path):
-            if relative:
-                vault.safe_path(relative).unlink(missing_ok=True)
-    session.deleted_at = datetime.now(UTC)
+    await _purge_session(db, session, settings, None)
     await _audit(db, request, admin, "session.deleted", "session", str(session_id))
     await db.commit()
     return Response(status_code=204)
@@ -448,19 +563,43 @@ async def audit_events(
 @internal.get("/control")
 async def internal_control(db: AsyncSession = Depends(get_db)) -> dict:
     state = await db.get(SystemState, 1)
-    return {"recording": not (state and state.recording_paused)}
+    revoked_tunnel_ips = (
+        await db.scalars(
+            select(Device.tunnel_ip).where(Device.revoked_at.is_not(None), Device.tunnel_ip.is_not(None))
+        )
+    ).all()
+    return {
+        "recording": not (state and state.recording_paused),
+        "revokedTunnelIps": revoked_tunnel_ips,
+    }
+
+
+@internal.post("/metrics", status_code=202)
+async def capture_metrics(event: CaptureMetrics, db: AsyncSession = Depends(get_db)) -> dict:
+    state = await db.get(SystemState, 1)
+    if state is None:
+        state = SystemState(id=1)
+        db.add(state)
+    state.spooled_events = event.spooled_events
+    state.dropped_events = event.dropped_events
+    await db.commit()
+    return {"accepted": True}
 
 
 @internal.post("/ingest", status_code=202)
 async def ingest(
     event: IngestEvent,
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     state = await db.get(SystemState, 1)
     if state and state.recording_paused:
         return {"accepted": False, "recording": False}
 
     if isinstance(event, HeaderEvent):
+        existing = await db.scalar(select(Flow).where(Flow.capture_id == event.capture_id))
+        if existing is not None:
+            return {"accepted": True, "recording": True}
         device = None
         if event.device_ip:
             device = await db.scalar(
@@ -496,6 +635,8 @@ async def ingest(
         db.add(flow)
         if device:
             device.last_seen_at = datetime.now(UTC)
+        await db.flush()
+        await _enforce_storage_limits(db, settings, session.id)
         await db.commit()
         payload = {"type": "flow.headers", "flow": _flow_summary(flow)}
     elif isinstance(event, CompleteEvent):
@@ -516,23 +657,34 @@ async def ingest(
         flow.not_captured_reason = event.not_captured_reason
         flow.websocket = event.websocket
         flow.state = "error" if event.event == "error" else "complete"
+        session = await db.get(CaptureSession, flow.session_id)
+        if session:
+            session.ended_at = event.completed_at
+        await db.flush()
+        await _enforce_storage_limits(db, settings, flow.session_id)
         await db.commit()
         payload = {"type": f"flow.{flow.state}", "flow": _flow_summary(flow)}
     else:
         flow = await db.scalar(select(Flow).where(Flow.capture_id == event.capture_id))
         if flow is None:
             raise HTTPException(status_code=409, detail="flow not found")
-        db.add(
-            WebSocketMessage(
-                flow_id=flow.id,
-                sequence=event.sequence,
-                from_client=event.from_client,
-                opcode=event.opcode,
-                payload_path=event.payload_path,
-                payload_size=event.payload_size,
-                timestamp=event.timestamp,
+        existing = await db.scalar(
+            select(WebSocketMessage).where(
+                WebSocketMessage.flow_id == flow.id, WebSocketMessage.sequence == event.sequence
             )
         )
+        if existing is None:
+            db.add(
+                WebSocketMessage(
+                    flow_id=flow.id,
+                    sequence=event.sequence,
+                    from_client=event.from_client,
+                    opcode=event.opcode,
+                    payload_path=event.payload_path,
+                    payload_size=event.payload_size,
+                    timestamp=event.timestamp,
+                )
+            )
         await db.commit()
         payload = {"type": "websocket.message", "flowId": str(flow.id), "sequence": event.sequence}
     await hub.publish(payload)

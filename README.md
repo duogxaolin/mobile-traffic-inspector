@@ -26,7 +26,7 @@ docker compose ps
 
 Caddy obtains a certificate using TLS-ALPN on port 443. Open `https://$SITE_ADDRESS/` and sign in as `admin` with the bootstrap password printed by `generate-secrets.sh`. The panel is the only HTTP API client; PostgreSQL and the ingest API have no host ports.
 
-The default mode has no automatic retention deletion and no application-level body quota. Set `RETENTION_DAYS` or `STORAGE_QUOTA_BYTES` in `.env` when an operator quota is desired. `PREVIEW_BYTES` only limits what the panel loads into a preview; it never truncates the encrypted stored body.
+The default mode has no automatic retention deletion and no application-level body quota. A nonzero `RETENTION_DAYS` removes expired sessions; a nonzero `STORAGE_QUOTA_BYTES` prunes oldest prior sessions after completed flows (the active session may temporarily exceed the limit). `PREVIEW_BYTES` only limits what the panel loads into a preview; it never truncates the encrypted stored body.
 
 ## Enroll a device and trust the CA
 
@@ -58,6 +58,6 @@ The fingerprint shown by `./scripts/verify-ca.sh` must match the value you commu
 
 The capture addon resolves every destination again at connect time and rejects loopback, RFC1918/RFC4193/link-local, multicast, shared, cloud metadata and other non-global addresses. This prevents the VPS from becoming an open proxy or an SSRF route. `SAFE_DESTINATION_OVERRIDES` is an explicit administrator escape hatch and should remain empty. Panel cookies are Secure, HttpOnly/SameSite and CSRF-protected; admin passwords use Argon2id. Containers drop capabilities where compatible, run without a Docker socket, and expose only TCP/443 and UDP/51820.
 
-Back up PostgreSQL and the encrypted body volume together with the application key. Losing the application key makes existing encrypted bodies unrecoverable. Treat backups as raw sensitive data. Rotate/revoke the admin account and WireGuard peer when a workstation is lost.
+Revoking a registered device blocks its tunnel IP from new capture forwarding within the capture control-poll interval (normally three seconds), while unregistered peers remain eligible for capture-all. Revocation does not cryptographically erase a client WireGuard profile already issued by mitmproxy: rotate/recreate the capture state and distribute new profiles for hard key revocation. Back up PostgreSQL and the encrypted body volume together with the application key. Losing the application key makes existing encrypted bodies unrecoverable. Treat backups as raw sensitive data. Rotate/revoke the admin account and WireGuard peer when a workstation is lost.
 
 For teardown and CA removal, disable the device tunnel, revoke/delete its device record, remove the CA profile from every test device, run `docker compose down`, and retain or remove named volumes according to your backup policy. See [docs/operations.md](docs/operations.md) for recovery, verification and troubleshooting.
