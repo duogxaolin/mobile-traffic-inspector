@@ -66,3 +66,5 @@ docker compose ps
 ```
 
 Then re-check `https://SITE_ADDRESS/healthz` through aaPanel/Nginx. The public reverse proxy usually does not need changes unless `PANEL_HTTP_PORT` changed.
+
+If your aaPanel web root already lives under `/www/wwwroot/...`, keep using that absolute path everywhere instead of the `/srv/mobile-traffic-inspector` example in the README. The important part is consistency: clone once, then reuse the same `VPS_APP_DIR` for every deploy command.

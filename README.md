@@ -160,7 +160,7 @@ Các action được pin theo commit SHA và workflow chỉ có `contents: read`
 
 Vì repository là private, VPS cần một **GitHub deploy key đọc repository riêng** trước khi clone. Tạo key Ed25519 trên VPS cho mục đích này, thêm public key vào **Repository settings → Deploy keys** với quyền read-only, và xác minh GitHub SSH host key theo fingerprint công bố chính thức/trong kênh độc lập trước khi thêm vào `~/.ssh/known_hosts` của user deploy. Key này chỉ để VPS `git fetch` mã nguồn; nó không phải `VPS_SSH_PRIVATE_KEY` mà GitHub Actions dùng để đăng nhập vào VPS.
 
-Sau đó clone SSH vào một thư mục riêng của user deploy (ví dụ `/srv/mobile-traffic-inspector`), tạo `.env` và `secrets/` bằng quy trình khởi động nhanh ở trên, rồi xác minh thủ công `docker compose up -d --build` hoạt động:
+Sau đó clone SSH vào một thư mục riêng của user deploy (ví dụ `/srv/mobile-traffic-inspector` hoặc `/www/wwwroot/proxy/mobile-traffic-inspector` nếu bạn đi cùng aaPanel), tạo `.env` và `secrets/` bằng quy trình khởi động nhanh ở trên, rồi xác minh thủ công `docker compose up -d --build` hoạt động:
 
 ```sh
 git clone git@github.com:duogxaolin/mobile-traffic-inspector.git /srv/mobile-traffic-inspector
@@ -169,6 +169,8 @@ git clone git@github.com:duogxaolin/mobile-traffic-inspector.git /srv/mobile-tra
 User SSH phải chỉ có quyền cần thiết để chạy Docker Compose tại thư mục đó. Không chạy workflow bằng root.
 
 Script deploy từ chối worktree có thay đổi cục bộ, lấy `origin/main`, chỉ chấp nhận SHA đúng bằng revision hiện tại của `origin/main`, dùng `flock` để chống deploy chồng nhau, và chạy `docker compose up -d --build --remove-orphans --wait`. Nó kiểm tra API/Caddy nội bộ lẫn `https://…/healthz` công khai. Khi lỗi sau lúc chuyển revision, script checkout lại revision trước và thử khởi động lại stack trước đó; không chạy `git reset --hard`, không xóa volume, `.env` hay secret.
+
+Nếu bạn dùng aaPanel và đặt repo dưới `/www/wwwroot/...`, cứ dùng đúng đường dẫn đó xuyên suốt cho `git pull`, `docker compose ...` và `VPS_APP_DIR`. Điều quan trọng là một đường dẫn tuyệt đối duy nhất; không trộn `/srv/mobile-traffic-inspector` với `/www/wwwroot/proxy/mobile-traffic-inspector`.
 
 Ứng dụng hiện không có migration orchestrator tự động. Vì vậy chỉ triển khai thay đổi schema tương thích ngược; với migration phá vỡ hoặc dữ liệu quan trọng, hãy backup PostgreSQL và encrypted body volume trước, thực hiện migration có kiểm soát, và chuẩn bị rollback dữ liệu riêng. Rollback container không thể tự đảo ngược migration dữ liệu.
 
@@ -181,7 +183,7 @@ Trong GitHub, tạo environment tên `production` và bật required reviewers/p
 | `VPS_HOST` | `203.0.113.10` | IP/hostname VPS đã được kiểm soát |
 | `VPS_USER` | `deploy` | User SSH không phải root |
 | `VPS_PORT` | `22` | Cổng SSH |
-| `VPS_APP_DIR` | `/srv/mobile-traffic-inspector` | Thư mục clone chuyên dụng trên VPS |
+| `VPS_APP_DIR` | `/srv/mobile-traffic-inspector` hoặc `/www/wwwroot/proxy/mobile-traffic-inspector` | Thư mục clone chuyên dụng trên VPS |
 | `APP_URL` | `https://inspect.example.com` | URL HTTPS công khai qua aaPanel/Nginx, không có slash cuối |
 
 Thêm hai **Secrets** sau:
