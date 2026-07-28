@@ -15,5 +15,6 @@ web/vite.config.js
 web/vite.config.d.ts
 web/vite.config.js.map
 web/node_modules/.tmp/
+web/*.tsbuildinfo
 backend/.venv/
 capture/.venv/
