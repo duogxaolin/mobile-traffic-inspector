@@ -66,6 +66,20 @@ http://127.0.0.1:${PANEL_HTTP_PORT:-28080}
 
 WebSocket phải được bật trong proxy. Nếu cấu hình bằng Nginx tay, giữ nguyên các header `X-Forwarded-*`, `Upgrade` và `Connection` như ví dụ ở trên. Không public `PANEL_HTTP_PORT` ra Internet.
 
+### aaPanel 1 phút
+
+1. Clone repo trên VPS và tạo `.env` từ `.env.example`.
+2. Giữ `SITE_ADDRESS=domain-cua-ban` và `PANEL_HTTP_PORT=28080`.
+3. Chạy:
+
+```sh
+./scripts/generate-secrets.sh
+docker compose up -d --build
+```
+
+4. Trong aaPanel, bật SSL cho domain và reverse proxy về `http://127.0.0.1:28080`.
+5. Mở `https://domain-cua-ban` để dùng panel.
+
 ### Deploy lại / cập nhật trên VPS
 
 Khi có commit mới trên `main`, đăng nhập VPS rồi chạy:
