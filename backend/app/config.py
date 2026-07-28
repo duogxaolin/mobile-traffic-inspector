@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     admin_password: str = ""
     body_root: Path = Path("/var/lib/traffic-inspector/bodies")
     wireguard_profile_path: Path = Path("/var/lib/traffic-inspector/mitmproxy/wireguard.conf")
+    site_address: str = ""
+    wireguard_port: int = Field(default=51820, ge=1, le=65535)
     preview_bytes: int = Field(default=262_144, ge=4096)
     retention_days: int = Field(default=0, ge=0)
     storage_quota_bytes: int = Field(default=0, ge=0)
@@ -53,6 +55,8 @@ class Settings(BaseSettings):
             wireguard_profile_path=Path(
                 os.getenv("WIREGUARD_PROFILE_PATH", "/var/lib/traffic-inspector/mitmproxy/wireguard.conf")
             ),
+            site_address=os.getenv("SITE_ADDRESS", ""),
+            wireguard_port=int(os.getenv("WIREGUARD_PORT", "51820")),
             preview_bytes=int(os.getenv("PREVIEW_BYTES", "262144")),
             retention_days=int(os.getenv("RETENTION_DAYS", "0")),
             storage_quota_bytes=int(os.getenv("STORAGE_QUOTA_BYTES", "0")),

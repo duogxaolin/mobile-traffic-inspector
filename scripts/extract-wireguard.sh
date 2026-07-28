@@ -14,7 +14,9 @@ fi
 umask 077
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT INT TERM
-docker compose cp capture:/home/mitmproxy/.mitmproxy/wireguard.conf "$tmp"
+docker compose exec -T api python -c \
+  'import sys; from app.api import _wireguard_client_profile; from app.config import get_settings; settings = get_settings(); source = settings.wireguard_profile_path.read_text(encoding="utf-8"); sys.stdout.write(_wireguard_client_profile(source, settings.site_address, settings.wireguard_port))' \
+  > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$target"
 

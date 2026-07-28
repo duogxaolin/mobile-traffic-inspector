@@ -121,7 +121,10 @@ Profile chứa private key, nên chỉ mở/tải trên máy admin tin cậy. N�
 ./scripts/extract-wireguard.sh ./device.conf
 ```
 
-Profile hiện tại là profile client do mitmproxy tạo trong capture container, giống file mà script SSH copy ra. Hãy revoke bản ghi trước khi bỏ hoặc thay thiết bị.
+Panel và script dựng profile client từ key-state JSON do mitmproxy tạo trong capture
+container. `Endpoint` dùng `SITE_ADDRESS` và `WIREGUARD_PORT` trong `.env`; không
+thêm `https://` hoặc port vào `SITE_ADDRESS`. Server private key không được đưa vào
+profile. Hãy revoke bản ghi trước khi bỏ hoặc thay thiết bị.
 
 Chỉ tải public proxy CA từ bảng điều khiển hoặc:
 

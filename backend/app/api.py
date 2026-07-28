@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import ipaddress
+import json
 import re
 import shutil
 import uuid
@@ -57,7 +60,7 @@ def _wireguard_config_value(profile: str, key: str) -> str | None:
 def _derive_wireguard_public_key(private_key_b64: str) -> str:
     try:
         private_bytes = base64.b64decode(private_key_b64, validate=True)
-    except ValueError as exc:
+    except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=500, detail="wireguard private key is not base64") from exc
     if len(private_bytes) != 32:
         raise HTTPException(status_code=500, detail="wireguard private key must be 32 bytes")
@@ -75,6 +78,88 @@ def _wireguard_tunnel_ip(profile: str) -> str | None:
         return None
     first = address.split(",", 1)[0].strip()
     return first.split("/", 1)[0] if first else None
+
+
+def _wireguard_endpoint(site_address: str, port: int) -> str:
+    host = site_address.strip()
+    if not host or host != site_address or any(char in host for char in "\r\n\t"):
+        raise HTTPException(status_code=500, detail="SITE_ADDRESS is not a valid endpoint host")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise HTTPException(status_code=500, detail="WIREGUARD_PORT is not a valid UDP port")
+
+    if host.startswith("[") or host.endswith("]"):
+        if not (host.startswith("[") and host.endswith("]")):
+            raise HTTPException(status_code=500, detail="SITE_ADDRESS is not a valid endpoint host")
+        try:
+            address = ipaddress.ip_address(host[1:-1])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500, detail="SITE_ADDRESS is not a valid endpoint host"
+            ) from exc
+        if address.version != 6:
+            raise HTTPException(status_code=500, detail="SITE_ADDRESS is not a valid endpoint host")
+        endpoint_host = f"[{address.compressed}]"
+    else:
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if len(host) > 253:
+                raise HTTPException(
+                    status_code=500, detail="SITE_ADDRESS is not a valid endpoint host"
+                )
+            labels = host.rstrip(".").split(".")
+            if (
+                not labels
+                or any(
+                    not label
+                    or len(label) > 63
+                    or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+                    for label in labels
+                )
+            ):
+                raise HTTPException(
+                    status_code=500, detail="SITE_ADDRESS is not a valid endpoint host"
+                )
+            endpoint_host = host
+        else:
+            endpoint_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    return f"{endpoint_host}:{port}"
+
+
+def _wireguard_client_profile(source: str, site_address: str, port: int) -> str:
+    legacy_private_key = _wireguard_config_value(source, "PrivateKey")
+    if legacy_private_key:
+        _derive_wireguard_public_key(legacy_private_key)
+        return source.strip() + "\n"
+
+    try:
+        state = json.loads(source)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="wireguard key state is invalid JSON") from exc
+    if not isinstance(state, dict):
+        raise HTTPException(status_code=500, detail="wireguard key state must be a JSON object")
+
+    client_key = state.get("client_key")
+    server_key = state.get("server_key")
+    if not isinstance(client_key, str) or not client_key:
+        raise HTTPException(status_code=500, detail="wireguard key state has no client key")
+    if not isinstance(server_key, str) or not server_key:
+        raise HTTPException(status_code=500, detail="wireguard key state has no server key")
+
+    _derive_wireguard_public_key(client_key)
+    server_public_key = _derive_wireguard_public_key(server_key)
+    endpoint = _wireguard_endpoint(site_address, port)
+    return (
+        "[Interface]\n"
+        f"PrivateKey = {client_key}\n"
+        "Address = 10.0.0.1/32\n"
+        "DNS = 10.0.0.53\n"
+        "\n"
+        "[Peer]\n"
+        f"PublicKey = {server_public_key}\n"
+        "AllowedIPs = 0.0.0.0/0\n"
+        f"Endpoint = {endpoint}\n"
+    )
 
 
 def _safe_profile_filename(name: str) -> str:
@@ -543,11 +628,16 @@ async def create_device_profile(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     try:
-        profile = settings.wireguard_profile_path.read_text(encoding="utf-8").strip()
+        source = settings.wireguard_profile_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=409, detail="wireguard profile is not ready yet") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail="wireguard profile is not readable by api") from exc
+    profile = _wireguard_client_profile(
+        source,
+        settings.site_address,
+        settings.wireguard_port,
+    )
     private_key = _wireguard_config_value(profile, "PrivateKey")
     if not private_key:
         raise HTTPException(status_code=500, detail="wireguard profile has no private key")
@@ -571,7 +661,7 @@ async def create_device_profile(
     return {
         "deviceId": str(device.id),
         "name": device.name,
-        "profile": profile + "\n",
+        "profile": profile,
         "peerPublicKey": peer_public_key,
         "tunnelIp": tunnel_ip,
         "filename": _safe_profile_filename(payload.name),

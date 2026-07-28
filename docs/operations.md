@@ -16,9 +16,9 @@ If you manage Nginx manually, preserve `Host`, `X-Real-IP`, `X-Forwarded-For`, `
 
 ## Client profile and CA verification
 
-The panel reads only the generated client WireGuard profile from the capture state volume and returns it to the authenticated admin as a QR code/download. It also derives the peer public key and registers or reactivates that device record automatically. The `.conf` contains a private key and is a bearer credential; only open it on trusted admin devices and delete it after importing, or store it in an encrypted secrets manager.
+Mitmproxy stores `server_key` and `client_key` as JSON in its capture-state `wireguard.conf`; that file is key state, not an importable client profile. The API reads it through a read-only volume and builds the client `.conf` with `SITE_ADDRESS` and `WIREGUARD_PORT` as its public endpoint. It includes only the client private key and the derived server public key; the server private key is never returned. The authenticated panel exposes the result as a QR code/download, derives the client public key, and registers or reactivates the device record automatically. The `.conf` contains a client private key and is a bearer credential; only open it on trusted admin devices and delete it after importing, or store it in an encrypted secrets manager.
 
-`extract-wireguard.sh` remains as an SSH fallback. It copies the same generated client profile to a local file with mode 0600 and prints the derived public key. It never prints the private key.
+`extract-wireguard.sh` remains as an SSH fallback. It asks the API container to build the same client profile, writes it to a local file with mode 0600, and prints the derived public key. It never prints the private key to the terminal.
 
 `verify-ca.sh` computes the SHA-256 fingerprint of the public certificate and compares it to an operator-provided value. The panel link serves `mitmproxy-ca-cert.pem` only. At startup, `capture` copies that public certificate into a separate read-only web volume; the CA private key and WireGuard server state remain in the capture-only Docker volume and are never part of the web build.
 
