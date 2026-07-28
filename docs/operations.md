@@ -8,6 +8,12 @@
 4. Visit `https://SITE_ADDRESS/healthz` through aaPanel/Nginx and sign in to the panel. Confirm **System / Audit** can read disk free space.
 5. Extract a WireGuard client profile with `./scripts/extract-wireguard.sh` and verify the public CA fingerprint before installing it.
 
+## aaPanel reverse proxy
+
+Create the aaPanel site on `SITE_ADDRESS`, enable SSL, and proxy it to `http://127.0.0.1:28080` by default. Keep WebSocket support enabled. Do not expose `PANEL_HTTP_PORT` publicly.
+
+If you manage Nginx manually, preserve `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, and `Connection` headers so Live Capture and auth cookies continue to work.
+
 ## Client profile and CA verification
 
 `extract-wireguard.sh` copies only the generated client profile to a local file with mode 0600 and prints the derived public key. It never prints the private key. A profile is a bearer credential; delete it after importing or store it in an encrypted secrets manager.
@@ -48,3 +54,15 @@ To rotate an admin password, change it through a future password-management endp
 * TLS error/pinning: verify the device trusts the public CA and that the app is a debug build. Pinning and app-layer encryption are intentionally not bypassed.
 * `spooledEvents` grows: inspect the API/Postgres health and free disk. Capture keeps forwarding traffic while it spools bounded metadata; replay/cleanup is an operator action.
 * No flows: confirm WireGuard is active, the app is using the tunnel, and the app did not opt out with its own VPN/QUIC stack. Only traffic arriving through the enrolled tunnel can be observed.
+
+## Redeploy loop
+
+For a normal update on the VPS, the repeatable sequence is:
+
+```sh
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+```
+
+Then re-check `https://SITE_ADDRESS/healthz` through aaPanel/Nginx. The public reverse proxy usually does not need changes unless `PANEL_HTTP_PORT` changed.

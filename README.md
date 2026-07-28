@@ -56,6 +56,30 @@ location / {
 
 Sau đó mở `https://$SITE_ADDRESS/` và đăng nhập `admin` bằng mật khẩu bootstrap do `generate-secrets.sh` in ra. Bảng điều khiển là HTTP API client duy nhất; PostgreSQL và ingest API không có host port. Không public trực tiếp `PANEL_HTTP_PORT`; port này nên chỉ nghe `127.0.0.1`.
 
+### Cấu hình aaPanel/Nginx
+
+Nếu bạn dùng aaPanel, chỉ cần tạo một site SSL cho `SITE_ADDRESS` rồi thêm reverse proxy tới:
+
+```text
+http://127.0.0.1:${PANEL_HTTP_PORT:-28080}
+```
+
+WebSocket phải được bật trong proxy. Nếu cấu hình bằng Nginx tay, giữ nguyên các header `X-Forwarded-*`, `Upgrade` và `Connection` như ví dụ ở trên. Không public `PANEL_HTTP_PORT` ra Internet.
+
+### Deploy lại / cập nhật trên VPS
+
+Khi có commit mới trên `main`, đăng nhập VPS rồi chạy:
+
+```sh
+cd /srv/mobile-traffic-inspector
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+docker compose logs api --tail 50
+```
+
+Sau đó mở lại `https://$SITE_ADDRESS/healthz` qua aaPanel/Nginx. Nếu đổi port nội bộ, sửa `PANEL_HTTP_PORT` trong `.env` và cập nhật target reverse proxy tương ứng.
+
 Mặc định không tự xóa theo retention và không có quota body ở tầng ứng dụng. `RETENTION_DAYS` khác 0 xóa session quá hạn; `STORAGE_QUOTA_BYTES` khác 0 sẽ dọn các session cũ nhất sau khi flow hoàn tất (session đang hoạt động có thể tạm thời vượt giới hạn). `PREVIEW_BYTES` chỉ giới hạn phần bảng tải để xem trước, không cắt ngắn body đã mã hóa trên đĩa.
 
 ## Đăng ký thiết bị WireGuard và tin CA
