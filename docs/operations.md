@@ -3,7 +3,7 @@
 ## First boot checklist
 
 1. Confirm DNS resolves to the VPS and that the firewall permits only TCP/443 and UDP/51820. Do not publish port 8000, 5432 or a regular HTTP proxy port.
-2. Run `./scripts/generate-secrets.sh` once. The script refuses to overwrite existing secrets. Save the generated bootstrap password in a password manager, then remove it from shell history.
+2. Run `./scripts/generate-secrets.sh` once. The script refuses to overwrite existing secrets. It writes local Docker Compose secret files as read-only/readable (`0644`) so non-root containers can read them. Save the generated bootstrap password in a password manager, then remove it from shell history.
 3. Run `docker compose config -q` and `docker compose up -d --build`. Wait for all health checks to be healthy.
 4. Visit `https://SITE_ADDRESS/healthz` and sign in to the panel. Confirm **System / Audit** can read disk free space.
 5. Extract a WireGuard client profile with `./scripts/extract-wireguard.sh` and verify the public CA fingerprint before installing it.

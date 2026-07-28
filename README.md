@@ -24,7 +24,8 @@ cd mobile-traffic-inspector
 cp .env.example .env
 # Sửa SITE_ADDRESS và ACME_EMAIL; chỉ đổi các giá trị khác khi hiểu rõ tác động.
 ./scripts/generate-secrets.sh
-chmod 600 .env secrets/*.txt
+chmod 600 .env
+chmod 644 secrets/*.txt
 docker compose config -q
 docker compose up -d --build
 docker compose ps

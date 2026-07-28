@@ -13,7 +13,10 @@ write_secret() {
     exit 1
   fi
   printf '%s' "$value" > "$target"
-  chmod 600 "$target"
+  # Docker Compose mounts local file-backed secrets with host file permissions.
+  # Services run as non-root users, so the files must be readable inside those
+  # containers while remaining write-protected on the host.
+  chmod 644 "$target"
 }
 
 db_password="$(openssl rand -hex 36)"
@@ -26,5 +29,5 @@ write_secret ingest_token "$(openssl rand -hex 32)"
 admin_password="$(openssl rand -base64 24 | tr -d '\n')"
 write_secret admin_password "$admin_password"
 
-echo "Secrets created with mode 0600. Store this bootstrap password now:"
+echo "Secrets created with mode 0644 for non-root Docker services. Store this bootstrap password now:"
 printf '%s\n' "$admin_password"
