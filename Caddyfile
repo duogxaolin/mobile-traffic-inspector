@@ -7,7 +7,9 @@ http://:2018 {
 	encode zstd gzip
 
 	@api path /api/* /auth/* /healthz /ws/*
-	reverse_proxy @api api:8000
+	handle @api {
+		reverse_proxy api:8000
+	}
 
 	@ca path /setup/mitmproxy-ca-cert.pem /setup/mitmproxy-ca-cert.cer
 	handle @ca {
