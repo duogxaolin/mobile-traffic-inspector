@@ -1,0 +1,103 @@
+name: Deploy VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Lý do triển khai (ghi lại trong lịch sử chạy workflow)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify deploy revision
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Create empty local secret placeholders for Compose validation
+        run: |
+          install -d -m 700 secrets
+          touch secrets/postgres_password.txt secrets/application_key.txt secrets/session_secret.txt
+          touch secrets/ingest_token.txt secrets/admin_password.txt
+      - name: Validate deploy inputs and local artifacts
+        env:
+          SITE_ADDRESS: inspector.example.test
+          ACME_EMAIL: ops@example.test
+        run: |
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          docker compose config -q
+          bash -n scripts/*.sh
+          bash scripts/validate-no-secrets.sh
+          docker compose build
+
+  deploy:
+    name: Deploy to production VPS
+    needs: preflight
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    env:
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER }}
+      VPS_PORT: ${{ vars.VPS_PORT }}
+      VPS_APP_DIR: ${{ vars.VPS_APP_DIR }}
+      APP_URL: ${{ vars.APP_URL }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Validate deployment configuration
+        run: |
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$VPS_APP_DIR" == /* ]]
+          [[ "$APP_URL" == https://* ]]
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          test -n "$VPS_SSH_PRIVATE_KEY"
+          test -n "$VPS_SSH_KNOWN_HOSTS"
+      - name: Install deploy SSH credentials
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/mti-ssh"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/mti-ssh/id_ed25519"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mti-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mti-ssh/id_ed25519" "$RUNNER_TEMP/mti-ssh/known_hosts"
+      - name: Run the verified deploy script on the VPS
+        run: |
+          app_dir_b64="$(printf %s "$VPS_APP_DIR" | base64 | tr -d '\n')"
+          app_url_b64="$(printf %s "$APP_URL" | base64 | tr -d '\n')"
+          ssh -i "$RUNNER_TEMP/mti-ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/mti-ssh/known_hosts" \
+            -p "$VPS_PORT" \
+            "$VPS_USER@$VPS_HOST" \
+            "GITHUB_SHA='$GITHUB_SHA' VPS_APP_DIR_B64='$app_dir_b64' APP_URL_B64='$app_url_b64' /bin/sh -s" <<'REMOTE'
+          set -eu
+          VPS_APP_DIR="$(printf %s "$VPS_APP_DIR_B64" | base64 -d)"
+          APP_URL="$(printf %s "$APP_URL_B64" | base64 -d)"
+          export GITHUB_SHA VPS_APP_DIR APP_URL
+          exec "$VPS_APP_DIR/scripts/deploy-vps.sh"
+          REMOTE
+      - name: Verify public health endpoint
+        run: |
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-delay 5 --connect-timeout 10 "$APP_URL/healthz"
