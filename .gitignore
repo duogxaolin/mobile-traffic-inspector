@@ -1,0 +1,16 @@
+.env
+.DS_Store
+secrets/
+data/
+*.log
+*.pyc
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+web/dist/
+web/coverage/
+backend/.venv/
+capture/.venv/
+
