@@ -3,8 +3,7 @@ http://:2018 {
 	reverse_proxy /healthz api:8000
 }
 
-{$SITE_ADDRESS} {
-	tls {$ACME_EMAIL}
+:8080 {
 	encode zstd gzip
 
 	@api path /api/* /auth/* /healthz /ws/*

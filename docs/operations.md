@@ -2,10 +2,10 @@
 
 ## First boot checklist
 
-1. Confirm DNS resolves to the VPS and that the firewall permits only TCP/443 and UDP/51820. Do not publish port 8000, 5432 or a regular HTTP proxy port.
+1. Confirm DNS resolves to aaPanel/Nginx on the VPS, SSL is enabled there, the reverse proxy points to `http://127.0.0.1:8080`, and the firewall permits only public TCP/443 plus UDP/51820. Do not publish port 8000, 5432 or a regular HTTP proxy port.
 2. Run `./scripts/generate-secrets.sh` once. The script refuses to overwrite existing secrets. It writes local Docker Compose secret files as read-only/readable (`0644`) so non-root containers can read them. Save the generated bootstrap password in a password manager, then remove it from shell history.
 3. Run `docker compose config -q` and `docker compose up -d --build`. Wait for all health checks to be healthy.
-4. Visit `https://SITE_ADDRESS/healthz` and sign in to the panel. Confirm **System / Audit** can read disk free space.
+4. Visit `https://SITE_ADDRESS/healthz` through aaPanel/Nginx and sign in to the panel. Confirm **System / Audit** can read disk free space.
 5. Extract a WireGuard client profile with `./scripts/extract-wireguard.sh` and verify the public CA fingerprint before installing it.
 
 ## Client profile and CA verification
@@ -43,7 +43,7 @@ To rotate an admin password, change it through a future password-management endp
 ## Troubleshooting
 
 * `capture` unhealthy: inspect `docker compose logs capture`; confirm the WireGuard UDP port is free and that `wireguard.conf` appears in the mitmproxy state volume. A revoked device is blocked from capture forwarding within the control poll interval, but an already issued WireGuard key remains valid until the capture state is rotated/recreated and replacement profiles are distributed.
-* `caddy` cannot bind `0.0.0.0:443`: another host process or container already owns the public HTTPS port. Run `ss -ltnp 'sport = :443'` and `docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep ':443'` to identify it. Free TCP/443 for the default deployment; using an existing reverse proxy requires a separate TLS/websocket/CA-download design.
+* `caddy` cannot bind `127.0.0.1:8080`: another local process or container already owns the internal panel port. Change `PANEL_HTTP_PORT` in `.env` or stop the conflicting local service, then update the aaPanel/Nginx reverse proxy target. If the public site opens but Live Capture does not update, enable WebSocket proxying in aaPanel/Nginx.
 * `volume-init` failed: inspect `docker compose logs volume-init`. It is the one-shot root-owned setup job that applies ownership to named volumes before the non-root API, capture and web services start.
 * TLS error/pinning: verify the device trusts the public CA and that the app is a debug build. Pinning and app-layer encryption are intentionally not bypassed.
 * `spooledEvents` grows: inspect the API/Postgres health and free disk. Capture keeps forwarding traffic while it spools bounded metadata; replay/cleanup is an operator action.

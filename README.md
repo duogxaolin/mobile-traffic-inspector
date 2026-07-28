@@ -13,8 +13,9 @@ Nội dung HTTPS chỉ hiển thị khi ứng dụng tin CA thử nghiệm. Cert
 ## Yêu cầu trước khi cài
 
 - VPS Linux có Docker Engine và Docker Compose v2, ổ đĩa được mã hóa và quota phù hợp với lưu lượng cần giữ.
-- DNS A/AAAA cho hostname, cổng TCP/443 và UDP/51820 mở đến VPS.
-- `openssl`, `wg` và `curl` trên máy dùng để thiết lập; bản ghi DNS phải hoạt động trước khi Caddy xin chứng chỉ.
+- DNS A/AAAA cho hostname trỏ về aaPanel/Nginx, cổng TCP/443 mở cho aaPanel và UDP/51820 mở cho WireGuard.
+- aaPanel/Nginx đã bật SSL cho hostname và reverse proxy về cổng HTTP nội bộ của stack.
+- `openssl`, `wg` và `curl` trên máy dùng để thiết lập.
 
 ## Khởi động nhanh trên VPS
 
@@ -22,7 +23,7 @@ Nội dung HTTPS chỉ hiển thị khi ứng dụng tin CA thử nghiệm. Cert
 git clone https://github.com/duogxaolin/mobile-traffic-inspector.git
 cd mobile-traffic-inspector
 cp .env.example .env
-# Sửa SITE_ADDRESS và ACME_EMAIL; chỉ đổi các giá trị khác khi hiểu rõ tác động.
+# Sửa SITE_ADDRESS và PANEL_HTTP_PORT nếu cần; chỉ đổi các giá trị khác khi hiểu rõ tác động.
 ./scripts/generate-secrets.sh
 chmod 600 .env
 chmod 644 secrets/*.txt
@@ -31,16 +32,29 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Caddy xin chứng chỉ bằng TLS-ALPN ở cổng 443. Mở `https://$SITE_ADDRESS/` và đăng nhập `admin` bằng mật khẩu bootstrap do `generate-secrets.sh` in ra. Bảng điều khiển là HTTP API client duy nhất; PostgreSQL và ingest API không có host port.
+Stack mặc định chỉ bind panel vào localhost, ví dụ `127.0.0.1:8080`, để không tranh cổng `443` với aaPanel. Trong aaPanel, tạo website/domain có SSL rồi reverse proxy toàn bộ domain về:
 
-Nếu `docker compose up` báo `failed to bind host port 0.0.0.0:443/tcp: address already in use`, nghĩa là VPS đang có dịch vụ khác chiếm HTTPS public. Cách đơn giản và đúng nhất cho triển khai mặc định là giải phóng cổng 443 cho Caddy của dự án này, rồi chạy lại `docker compose up -d --build`. Kiểm tra thủ phạm bằng:
-
-```sh
-ss -ltnp 'sport = :443'
-docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep ':443'
+```text
+http://127.0.0.1:8080
 ```
 
-Nếu đó là Nginx/Apache/OpenLiteSpeed/aaPanel không còn dùng cho hostname này, hãy dừng hoặc chuyển nó sang dịch vụ/domain khác trước khi bật stack. Nếu bắt buộc giữ web server hiện có ở 443, cần cấu hình reverse proxy riêng và kiểm soát TLS/websocket/đường dẫn CA thủ công; đây không phải luồng tối giản.
+Bật hỗ trợ WebSocket nếu aaPanel có tùy chọn này. Nếu cần cấu hình Nginx thủ công, phần proxy tối thiểu là:
+
+```sh
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600;
+}
+```
+
+Sau đó mở `https://$SITE_ADDRESS/` và đăng nhập `admin` bằng mật khẩu bootstrap do `generate-secrets.sh` in ra. Bảng điều khiển là HTTP API client duy nhất; PostgreSQL và ingest API không có host port. Không public trực tiếp `PANEL_HTTP_PORT`; port này nên chỉ nghe `127.0.0.1`.
 
 Mặc định không tự xóa theo retention và không có quota body ở tầng ứng dụng. `RETENTION_DAYS` khác 0 xóa session quá hạn; `STORAGE_QUOTA_BYTES` khác 0 sẽ dọn các session cũ nhất sau khi flow hoàn tất (session đang hoạt động có thể tạm thời vượt giới hạn). `PREVIEW_BYTES` chỉ giới hạn phần bảng tải để xem trước, không cắt ngắn body đã mã hóa trên đĩa.
 
@@ -89,7 +103,7 @@ Nếu app dùng certificate pinning hoặc tự đi đường riêng, bạn vẫ
 
 ## Vận hành và bảo mật
 
-Addon capture resolve lại từng đích ở thời điểm kết nối và chặn loopback, RFC1918/RFC4193/link-local, multicast, shared, cloud metadata và mọi địa chỉ không global khác. Điều này ngăn VPS trở thành open proxy hoặc đường SSRF. `SAFE_DESTINATION_OVERRIDES` là lối thoát tường minh của quản trị viên và nên để trống. Cookie bảng điều khiển là Secure, HttpOnly/SameSite và có CSRF protection; mật khẩu admin dùng Argon2id. Container bỏ capability khi tương thích, không dùng Docker socket, chỉ mở TCP/443 và UDP/51820.
+Addon capture resolve lại từng đích ở thời điểm kết nối và chặn loopback, RFC1918/RFC4193/link-local, multicast, shared, cloud metadata và mọi địa chỉ không global khác. Điều này ngăn VPS trở thành open proxy hoặc đường SSRF. `SAFE_DESTINATION_OVERRIDES` là lối thoát tường minh của quản trị viên và nên để trống. Cookie bảng điều khiển là Secure, HttpOnly/SameSite và có CSRF protection; mật khẩu admin dùng Argon2id. Container bỏ capability khi tương thích, không dùng Docker socket, chỉ mở TCP/443 ở aaPanel/Nginx, TCP localhost cho panel nội bộ và UDP/51820 cho WireGuard.
 
 Revoke thiết bị đã đăng ký sẽ chặn tunnel IP khỏi capture forwarding mới trong chu kỳ poll control của capture (thường ba giây); peer chưa đăng ký vẫn đủ điều kiện capture-all. Revoke không xóa được về mặt mật mã WireGuard profile đã cấp: để thu hồi key cứng, hãy xoay/tạo lại capture state và phân phối profile mới. Sao lưu PostgreSQL và encrypted body volume cùng application key. Mất application key khiến body đã mã hóa không thể khôi phục. Hãy coi backup là dữ liệu thô nhạy cảm. Xoay/revoke tài khoản admin và WireGuard peer khi mất máy trạm.
 
@@ -130,7 +144,7 @@ Trong GitHub, tạo environment tên `production` và bật required reviewers/p
 | `VPS_USER` | `deploy` | User SSH không phải root |
 | `VPS_PORT` | `22` | Cổng SSH |
 | `VPS_APP_DIR` | `/srv/mobile-traffic-inspector` | Thư mục clone chuyên dụng trên VPS |
-| `APP_URL` | `https://inspect.example.com` | URL HTTPS công khai, không có slash cuối |
+| `APP_URL` | `https://inspect.example.com` | URL HTTPS công khai qua aaPanel/Nginx, không có slash cuối |
 
 Thêm hai **Secrets** sau:
 
@@ -153,7 +167,7 @@ gh secret set --env production VPS_SSH_PRIVATE_KEY < ./deploy_ed25519
 gh secret set --env production VPS_SSH_KNOWN_HOSTS < ./known_hosts.verified
 ```
 
-Với repository private, hãy xác nhận gói GitHub/organization cho phép Actions, environment protection và reviewer bạn cần; chính sách/quyền phê duyệt có thể khác theo gói và organization. DNS thật, TCP/443 và email ACME hợp lệ vẫn là điều kiện để Caddy cấp chứng chỉ thật. Workflow không biến hostname mẫu thành hệ thống public an toàn.
+Với repository private, hãy xác nhận gói GitHub/organization cho phép Actions, environment protection và reviewer bạn cần; chính sách/quyền phê duyệt có thể khác theo gói và organization. DNS thật, TCP/443, SSL ở aaPanel/Nginx và reverse proxy về `127.0.0.1:${PANEL_HTTP_PORT:-8080}` vẫn là điều kiện để panel public hoạt động. Workflow không biến hostname mẫu thành hệ thống public an toàn.
 
 Sau khi CI của commit trên `main` xanh và environment được phê duyệt, chạy deploy có kiểm soát bằng:
 
