@@ -11,6 +11,9 @@ __pycache__/
 node_modules/
 web/dist/
 web/coverage/
+web/vite.config.js
+web/vite.config.d.ts
+web/vite.config.js.map
+web/node_modules/.tmp/
 backend/.venv/
 capture/.venv/
-
